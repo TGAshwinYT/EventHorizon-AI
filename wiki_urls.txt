@@ -1,0 +1,10 @@
+John_Deere_5055E_tractor.JPG: https://upload.wikimedia.org/wikipedia/commons/7/7d/John_Deere_5055E_tractor.JPG
+Mahindra_tractor.JPG: https://upload.wikimedia.org/wikipedia/commons/5/51/Mahindra_tractor.JPG
+Sonalika_DI_tractor.jpg: https://upload.wikimedia.org/wikipedia/commons/9/93/Sonalika_DI_tractor.jpg
+Tata_Ace_Mini_Truck_(1).JPG: https://upload.wikimedia.org/wikipedia/commons/f/f3/Tata_Ace_Mini_Truck_(1).JPG
+Kubota_tractor_9.jpg: https://upload.wikimedia.org/wikipedia/commons/7/7c/Kubota_tractor_9.jpg
+John_Deere_5055E_tractor.JPG: https://upload.wikimedia.org/wikipedia/commons/7/7d/John_Deere_5055E_tractor.JPG
+Mahindra_tractor.JPG: https://upload.wikimedia.org/wikipedia/commons/5/51/Mahindra_tractor.JPG
+Sonalika_DI_tractor.jpg: https://upload.wikimedia.org/wikipedia/commons/9/93/Sonalika_DI_tractor.jpg
+Tata_Ace_Mini_Truck_(1).JPG: https://upload.wikimedia.org/wikipedia/commons/f/f3/Tata_Ace_Mini_Truck_(1).JPG
+Kubota_tractor_9.jpg: https://upload.wikimedia.org/wikipedia/commons/7/7c/Kubota_tractor_9.jpg

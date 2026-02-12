@@ -1,0 +1,10 @@
+flask
+flask-cors
+python-dotenv
+requests
+edge-tts
+nest_asyncio
+SpeechRecognition
+deep-translator
+pydub
+pg8000
