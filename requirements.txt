@@ -1,5 +1,6 @@
 flask
 flask-cors
+flask-sqlalchemy
 python-dotenv
 requests
 edge-tts
@@ -8,3 +9,6 @@ SpeechRecognition
 deep-translator
 pydub
 pg8000
+passlib
+pyjwt
+google-generativeai

@@ -1,9 +1,20 @@
+# Python dependencies
 __pycache__/
 *.pyc
 venv/
-**/.env
-.DS_Store
+.venv/
 
-# IMPORTANT: If you accidentally committed .env files, run:
-# git rm --cached **/.env
-# git commit -m "Remove sensitive files"
+# Environment variables
+**/.env
+
+# Node.js dependencies
+node_modules/
+dist/
+
+# System and IDE
+.DS_Store
+.vscode/
+
+# Local database
+backend/app.db
+*.db
