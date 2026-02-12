@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+venv/
+**/.env
+.DS_Store
+
+# IMPORTANT: If you accidentally committed .env files, run:
+# git rm --cached **/.env
+# git commit -m "Remove sensitive files"
