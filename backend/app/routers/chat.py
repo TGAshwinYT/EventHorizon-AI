@@ -25,7 +25,7 @@ def detect_language(text: str, default: str = 'en') -> str:
     elif any('\u0A80' <= c <= '\u0AFF' for c in text): return 'gu'  # Gujarati
     return default
 
-@router.route('/', methods=['POST'])
+@router.route('/', methods=['POST'], strict_slashes=False)
 def chat_endpoint():
     """
     Main chat endpoint supporting both text and voice input.
