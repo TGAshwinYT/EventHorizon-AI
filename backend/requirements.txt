@@ -13,3 +13,4 @@ gunicorn
 flask-sqlalchemy
 passlib
 pyjwt
+psycopg2-binary
