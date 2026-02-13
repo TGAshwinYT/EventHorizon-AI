@@ -39,25 +39,28 @@ class AudioService:
                     audio_data.extend(data)
             return bytes(audio_data)
 
-        # Run async function in synchronous context
-        try:
-            try:
-                loop = asyncio.get_running_loop()
-            except RuntimeError:
-                loop = None
-            
-            if loop and loop.is_running():
-                # Loop is running, use nest_asyncio patched run_until_complete
-                # Ensure it's wrapped in a Task for aiohttp/timeout compliance
-                task = asyncio.ensure_future(_generate())
-                return cast(bytes, loop.run_until_complete(task))
-            else:
-                # No loop, use asyncio.run (which creates a loop and task)
-                return cast(bytes, asyncio.run(_generate()))
+        # Run async function in a separate thread to ensure a clean loop
+        import threading
+        
+        result_container = {"data": None, "error": None}
 
-        except Exception as e:
-            print(f"[EDGE-TTS ERROR] {e}")
-            raise e  # Re-raise to be caught by router
+        def runner():
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                result_container["data"] = loop.run_until_complete(_generate())
+                loop.close()
+            except Exception as e:
+                result_container["error"] = e
+
+        thread = threading.Thread(target=runner)
+        thread.start()
+        thread.join()
+
+        if result_container["error"]:
+            raise result_container["error"]
+            
+        return cast(bytes, result_container["data"])
 
     def speech_to_text(self, audio_bytes: bytes, lang: str = 'en-IN') -> Optional[str]:
         """Convert speech to text using SpeechRecognition"""
