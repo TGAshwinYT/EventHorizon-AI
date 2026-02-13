@@ -27,32 +27,35 @@ class AudioService:
 
     def text_to_speech(self, text: str, lang: str = 'en') -> Optional[bytes]:
         """Convert text to speech using Edge-TTS (High Quality)"""
-        try:
-            voice = self.voices.get(lang, 'en-US-AriaNeural')
-            
-            async def _generate() -> bytes:
-                communicate = edge_tts.Communicate(text, voice)
-                audio_data = bytearray()
-                async for chunk in communicate.stream():
-                    if chunk["type"] == "audio":
-                        data = cast(bytes, chunk["data"])
-                        audio_data.extend(data)
-                return bytes(audio_data)
+        # Removed broad try-except to allow debugging 500 errors in router
+        voice = self.voices.get(lang, 'en-US-AriaNeural')
+        
+        async def _generate() -> bytes:
+            communicate = edge_tts.Communicate(text, voice)
+            audio_data = bytearray()
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    data = cast(bytes, chunk["data"])
+                    audio_data.extend(data)
+            return bytes(audio_data)
 
-            # Run async function in synchronous context
+        # Run async function in synchronous context
+        try:
             try:
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    return cast(bytes, loop.run_until_complete(_generate()))
-                else:
-                    return cast(bytes, loop.run_until_complete(_generate()))
+                loop = asyncio.get_running_loop()
             except RuntimeError:
-                # No event loop in this thread, create one via asyncio.run
+                loop = None
+            
+            if loop and loop.is_running():
+                # Loop is running, use nest_asyncio patched run_until_complete
+                return cast(bytes, loop.run_until_complete(_generate()))
+            else:
+                # No loop, use asyncio.run
                 return cast(bytes, asyncio.run(_generate()))
 
         except Exception as e:
             print(f"[EDGE-TTS ERROR] {e}")
-            return None
+            raise e  # Re-raise to be caught by router
 
     def speech_to_text(self, audio_bytes: bytes, lang: str = 'en-IN') -> Optional[str]:
         """Convert speech to text using SpeechRecognition"""
