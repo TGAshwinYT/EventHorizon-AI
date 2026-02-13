@@ -1,0 +1,12 @@
+{
+    "rewrites": [
+        {
+            "source": "/api/:path*",
+            "destination": "https://eventhorizon-ai.onrender.com/api/:path*"
+        },
+        {
+            "source": "/(.*)",
+            "destination": "/frontend/index.html"
+        }
+    ]
+}
