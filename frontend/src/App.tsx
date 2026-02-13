@@ -360,7 +360,7 @@ function App() {
                 headers['Authorization'] = `Bearer ${token}`;
             }
 
-            const response = await fetch('/api/chat/', {
+            const response = await fetch('/api/chat', {
                 method: 'POST',
                 headers: token ? { 'Authorization': `Bearer ${token}` } : undefined,
                 body: formData,
