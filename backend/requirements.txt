@@ -1,0 +1,12 @@
+flask
+flask-cors
+python-dotenv
+sqlalchemy
+pg8000
+scramp
+requests
+SpeechRecognition
+edge-tts
+deep-translator
+nest_asyncio
+gunicorn
