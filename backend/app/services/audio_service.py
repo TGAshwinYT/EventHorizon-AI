@@ -4,6 +4,36 @@ from deep_translator import GoogleTranslator
 import os
 import io
 import asyncio
+from typing import Optional, cast, Dict, Any
+
+class AudioService:
+    def __init__(self):
+        self.recognizer = sr.Recognizer()
+        # Default voices
+        self.voices = {
+            'en': 'en-IN-NeerjaNeural',
+            'hi': 'hi-IN-SwaraNeural',
+            'te': 'te-IN-MohanNeural',
+            'ta': 'ta-IN-PallaviNeural',
+            'mr': 'mr-IN-AarohiNeural',
+            'gu': 'gu-IN-DhwaniNeural',
+            'kn': 'kn-IN-GaganNeural',
+            'ml': 'ml-IN-MidhunNeural'
+        }
+
+    def text_to_speech(self, text: str, lang: str = 'en') -> Optional[bytes]:
+        """Convert text to speech using Edge-TTS (High Quality)"""
+        voice = self.voices.get(lang, 'en-US-AriaNeural')
+        
+        async def _generate() -> bytes:
+            communicate = edge_tts.Communicate(text, voice)
+            audio_data = bytearray()
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    data = cast(bytes, chunk["data"])
+                    audio_data.extend(data)
+            return bytes(audio_data)
+
         # Run async function in a separate thread to ensure a clean loop
         import threading
         
