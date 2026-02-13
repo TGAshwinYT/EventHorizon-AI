@@ -48,9 +48,11 @@ class AudioService:
             
             if loop and loop.is_running():
                 # Loop is running, use nest_asyncio patched run_until_complete
-                return cast(bytes, loop.run_until_complete(_generate()))
+                # Ensure it's wrapped in a Task for aiohttp/timeout compliance
+                task = asyncio.ensure_future(_generate())
+                return cast(bytes, loop.run_until_complete(task))
             else:
-                # No loop, use asyncio.run
+                # No loop, use asyncio.run (which creates a loop and task)
                 return cast(bytes, asyncio.run(_generate()))
 
         except Exception as e:
