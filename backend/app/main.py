@@ -39,5 +39,53 @@ def root():
 def serve_audio(filename):
     return send_from_directory(AUDIO_DIR, filename)
 
+@app.route('/api/debug', methods=['GET'])
+def debug_endpoint():
+    db_status = "unknown"
+    try:
+        from app.database import SessionLocal
+        from sqlalchemy import text
+        db = SessionLocal()
+        db.execute(text("SELECT 1"))
+        db.close()
+        db_status = "Connected"
+    except Exception as e:
+        db_status = f"Failed: {str(e)}"
+
+    modules_status = {}
+    try:
+        import edge_tts
+        modules_status["edge_tts"] = "Installed"
+    except ImportError:
+        modules_status["edge_tts"] = "Missing"
+
+    status = {
+        "database": db_status,
+        "env_vars": {
+            "DATABASE_URL": "Set" if os.getenv("DATABASE_URL") else "Missing",
+            "GEMINI_API_KEY": "Set" if os.getenv("GEMINI_API_KEY") else "Missing"
+        },
+        "modules": modules_status
+    }
+    return jsonify(status)
+
+@app.errorhandler(Exception)
+def handle_exception(e):
+    from werkzeug.exceptions import HTTPException
+    if isinstance(e, HTTPException):
+        return e
+    
+    # Log to server console
+    import traceback
+    traceback.print_exc()
+    
+    return jsonify({
+        "error": "Internal Server Error",
+        "details": str(e),
+        "type": type(e).__name__
+    }), 500
+
+
 if __name__ == "__main__":
     app.run(host="127.0.0.1", port=8000, debug=True)
+
