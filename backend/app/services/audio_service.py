@@ -4,41 +4,6 @@ from deep_translator import GoogleTranslator
 import os
 import io
 import asyncio
-import nest_asyncio
-from typing import Optional, cast, Dict, Any
-
-# Apply nest_asyncio to allow async execution in Flask
-nest_asyncio.apply()
-
-class AudioService:
-    def __init__(self):
-        self.recognizer = sr.Recognizer()
-        # Default voices
-        self.voices = {
-            'en': 'en-IN-NeerjaNeural',
-            'hi': 'hi-IN-SwaraNeural',
-            'te': 'te-IN-MohanNeural',
-            'ta': 'ta-IN-PallaviNeural',
-            'mr': 'mr-IN-AarohiNeural',
-            'gu': 'gu-IN-DhwaniNeural',
-            'kn': 'kn-IN-GaganNeural',
-            'ml': 'ml-IN-MidhunNeural'
-        }
-
-    def text_to_speech(self, text: str, lang: str = 'en') -> Optional[bytes]:
-        """Convert text to speech using Edge-TTS (High Quality)"""
-        # Removed broad try-except to allow debugging 500 errors in router
-        voice = self.voices.get(lang, 'en-US-AriaNeural')
-        
-        async def _generate() -> bytes:
-            communicate = edge_tts.Communicate(text, voice)
-            audio_data = bytearray()
-            async for chunk in communicate.stream():
-                if chunk["type"] == "audio":
-                    data = cast(bytes, chunk["data"])
-                    audio_data.extend(data)
-            return bytes(audio_data)
-
         # Run async function in a separate thread to ensure a clean loop
         import threading
         
@@ -46,14 +11,10 @@ class AudioService:
 
         def runner():
             try:
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                # Explicitly wrap in a Task to satisfy stricter aiohttp/async-timeout requirements
-                task = loop.create_task(_generate())
-                result_container["data"] = loop.run_until_complete(task)
-                # Clean shutdown of generators if any
-                loop.run_until_complete(loop.shutdown_asyncgens())
-                loop.close()
+                # asyncio.run() automatically creates a new event loop, 
+                # runs the coroutine as a Task, and closes the loop.
+                # This is the most standard and safe way to run async code in a thread.
+                result_container["data"] = asyncio.run(_generate())
             except Exception as e:
                 result_container["error"] = e
 
