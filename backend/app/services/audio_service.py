@@ -37,7 +37,7 @@ class AudioService:
         # Run async function in a separate thread to ensure a clean loop
         import threading
         
-        result_container = {"data": None, "error": None}
+        result_container: Dict[str, Any] = {"data": None, "error": None}
 
         def runner():
             try:
