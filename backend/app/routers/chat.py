@@ -336,14 +336,17 @@ def generate_tts():
     # Clean text for TTS
     import re
     clean_text = re.sub(r'[*#_`~-]', '', text)
-    audio_bytes = audio_service.text_to_speech(clean_text, language)
     
-    if audio_bytes:
-        audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
-        audio_url = f"data:audio/mp3;base64,{audio_base64}"
-        return jsonify({"audio_url": audio_url})
+    try:
+        audio_bytes = audio_service.text_to_speech(clean_text, language)
+        if audio_bytes:
+            audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
+            audio_url = f"data:audio/mp3;base64,{audio_base64}"
+            return jsonify({"audio_url": audio_url})
+    except Exception as e:
+        return jsonify({"error": f"TTS Failure: {str(e)}"}), 500
     
-    return jsonify({"error": "Failed to generate audio"}), 500
+    return jsonify({"error": "Failed to generate audio (Unknown)"}), 500
 
 
 @router.route('/settings/env', methods=['POST'])
