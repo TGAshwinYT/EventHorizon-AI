@@ -10,3 +10,6 @@ edge-tts
 deep-translator
 nest_asyncio
 gunicorn
+flask-sqlalchemy
+passlib
+pyjwt
