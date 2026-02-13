@@ -48,7 +48,11 @@ class AudioService:
             try:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
-                result_container["data"] = loop.run_until_complete(_generate())
+                # Explicitly wrap in a Task to satisfy stricter aiohttp/async-timeout requirements
+                task = loop.create_task(_generate())
+                result_container["data"] = loop.run_until_complete(task)
+                # Clean shutdown of generators if any
+                loop.run_until_complete(loop.shutdown_asyncgens())
                 loop.close()
             except Exception as e:
                 result_container["error"] = e
