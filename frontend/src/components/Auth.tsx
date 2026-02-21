@@ -6,8 +6,11 @@ interface AuthProps {
 
 const Auth = ({ onLogin }: AuthProps) => {
     const [isLogin, setIsLogin] = useState(true);
+    const [isReset, setIsReset] = useState(false);
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
+    const [newPassword, setNewPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
 
@@ -16,27 +19,46 @@ const Auth = ({ onLogin }: AuthProps) => {
         setError('');
         setLoading(true);
 
-        const endpoint = isLogin ? '/api/auth/login' : '/api/auth/register';
+        let endpoint = '';
+        let body = {};
+
+        if (isReset) {
+            if (newPassword !== confirmPassword) {
+                setError("Passwords do not match");
+                setLoading(false);
+                return;
+            }
+            endpoint = '/api/auth/reset-password';
+            body = { username, new_password: newPassword };
+        } else {
+            endpoint = isLogin ? '/api/auth/login' : '/api/auth/register';
+            body = { username, password };
+        }
 
         try {
             const res = await fetch(endpoint, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password })
+                body: JSON.stringify(body)
             });
 
             const data = await res.json();
 
             if (!res.ok) {
-                throw new Error(data.error || 'Authentication failed');
+                throw new Error(data.detail || data.error || 'Authentication failed');
             }
 
-            if (isLogin) {
+            if (isReset) {
+                setIsReset(false);
+                setIsLogin(true);
+                setError('Password reset successful! Please log in.');
+                setPassword('');
+                setNewPassword('');
+                setConfirmPassword('');
+            } else if (isLogin) {
                 onLogin(data.access_token, data.username);
             } else {
                 // Auto login after register or just switch to login?
-                // For simplicity, let's switch to login with a success message or just auto-login if the API returned a token (it currently doesn't for register).
-                // Let's ask user to login.
                 setIsLogin(true);
                 setError('Registration successful! Please log in.');
                 setPassword('');
@@ -52,7 +74,7 @@ const Auth = ({ onLogin }: AuthProps) => {
     return (
         <div className="flex flex-col items-center justify-center p-8 bg-black/40 backdrop-blur-md rounded-2xl border border-white/10 w-full max-w-md mx-auto shadow-2xl">
             <h2 className="text-3xl font-bold text-white mb-6 bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500">
-                {isLogin ? 'Welcome Back' : 'Join EventHorizon'}
+                {isReset ? 'Reset Password' : (isLogin ? 'Welcome Back' : 'Join EventHorizon')}
             </h2>
 
             {error && (
@@ -72,35 +94,86 @@ const Auth = ({ onLogin }: AuthProps) => {
                         required
                     />
                 </div>
-                <div>
-                    <label className="text-sm text-gray-400 mb-1 block">Password</label>
-                    <input
-                        type="password"
-                        value={password}
-                        onChange={(e) => setPassword(e.target.value)}
-                        className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all"
-                        required
-                    />
-                </div>
+
+                {!isReset && (
+                    <div>
+                        <div className="flex justify-between items-center mb-1">
+                            <label className="text-sm text-gray-400 block">Password</label>
+                            {isLogin && (
+                                <button
+                                    type="button"
+                                    onClick={() => { setIsReset(true); setError(''); }}
+                                    className="text-xs text-blue-400 hover:text-blue-300"
+                                >
+                                    Forgot Password?
+                                </button>
+                            )}
+                        </div>
+                        <input
+                            type="password"
+                            value={password}
+                            onChange={(e) => setPassword(e.target.value)}
+                            className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                            required
+                        />
+                    </div>
+                )}
+
+                {isReset && (
+                    <>
+                        <div>
+                            <label className="text-sm text-gray-400 mb-1 block">New Password</label>
+                            <input
+                                type="password"
+                                value={newPassword}
+                                onChange={(e) => setNewPassword(e.target.value)}
+                                className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                                required
+                            />
+                        </div>
+                        <div>
+                            <label className="text-sm text-gray-400 mb-1 block">Confirm Password</label>
+                            <input
+                                type="password"
+                                value={confirmPassword}
+                                onChange={(e) => setConfirmPassword(e.target.value)}
+                                className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                                required
+                            />
+                        </div>
+                    </>
+                )}
 
                 <button
                     type="submit"
                     disabled={loading}
                     className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-semibold py-2 rounded-lg transition-all transform hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed mt-4"
                 >
-                    {loading ? 'Processing...' : (isLogin ? 'Sign In' : 'Create Account')}
+                    {loading ? 'Processing...' : (isReset ? 'Reset Password' : (isLogin ? 'Sign In' : 'Create Account'))}
                 </button>
+
+                {isReset && (
+                    <button
+                        type="button"
+                        onClick={() => { setIsReset(false); setError(''); }}
+                        className="w-full text-sm text-gray-400 hover:text-white mt-2"
+                    >
+                        Back to Login
+                    </button>
+                )}
             </form>
 
-            <div className="mt-6 text-sm text-gray-400">
-                {isLogin ? "Don't have an account? " : "Already have an account? "}
-                <button
-                    onClick={() => { setIsLogin(!isLogin); setError(''); }}
-                    className="text-blue-400 hover:text-blue-300 font-semibold ml-1"
-                >
-                    {isLogin ? 'Sign Up' : 'Log In'}
-                </button>
-            </div>
+            {!isReset && (
+                <div className="mt-6 text-sm text-gray-400">
+                    {isLogin ? "Don't have an account? " : "Already have an account? "}
+                    <button
+                        onClick={() => { setIsLogin(!isLogin); setError(''); }}
+                        className="text-blue-400 hover:text-blue-300 font-semibold ml-1"
+                    >
+                        {isLogin ? 'Sign Up' : 'Log In'}
+                    </button>
+                </div>
+            )}
         </div>
     );
 };

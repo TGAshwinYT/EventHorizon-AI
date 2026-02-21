@@ -1,5 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
-import { Search, TrendingUp, Sprout, ArrowLeft, Loader2, BookOpen, Truck, Landmark, BarChart3, Volume2, StopCircle, Youtube, User, ExternalLink, ChevronDown, ChevronUp } from 'lucide-react';
+import { Search, TrendingUp, ArrowLeft, Loader2, BookOpen, Truck, Landmark, BarChart3, Volume2, StopCircle, Youtube, User, ExternalLink } from 'lucide-react';
+import MandiInterface from './MandiInterface';
+import ForecastingInterface from './ForecastingInterface';
 
 interface MarketDashboardProps {
     onBack: () => void;
@@ -8,7 +10,7 @@ interface MarketDashboardProps {
     onMoreDetails?: (query: string) => void;
 }
 
-type View = 'menu' | 'rates' | 'vehicles' | 'vehicle_details' | 'schemes' | 'advice' | 'marketing';
+type View = 'menu' | 'rates' | 'vehicles' | 'vehicle_details' | 'schemes' | 'forecasting' | 'marketing';
 
 interface Story {
     name: string;
@@ -17,15 +19,13 @@ interface Story {
     image_prompt?: string;
 }
 
-const MarketDashboard = ({ onBack, currentLanguage, labels, onMoreDetails }: MarketDashboardProps) => {
+const MarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashboardProps) => {
     const [view, setView] = useState<View>('menu');
     const [searchTerm, setSearchTerm] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [selectedVehicleIndex, setSelectedVehicleIndex] = useState<number | null>(null);
 
     // Data State
-    const [ratesResult, setRatesResult] = useState<{ summary: string, details: string | null } | null>(null);
-    const [showRatesDetails, setShowRatesDetails] = useState(false);
 
     // Marketing stories are dynamic
     const [stories, setStories] = useState<Story[]>([]);
@@ -100,36 +100,6 @@ const MarketDashboard = ({ onBack, currentLanguage, labels, onMoreDetails }: Mar
         }
     }, [view]);
 
-    const handleRateSearch = async () => {
-        if (!searchTerm.trim()) return;
-        setIsLoading(true);
-        setRatesResult(null);
-        setShowRatesDetails(false);
-
-        try {
-            const response = await fetch('/api/chat', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    message: `Provide real-time market price trends and cultivation advice for ${searchTerm} in India.`,
-                    language: currentLanguage,
-                    type: 'market' // This tells backend to use the structured formatter
-                }),
-            });
-            const data = await response.json();
-            // Backend returns: Summary ||| Details
-            const [summary, details] = data.response_text.split('|||').map((s: string) => s.trim());
-
-            setRatesResult({
-                summary: (summary || data.response_text).replace(/\*/g, ''),
-                details: (details || null)?.replace(/\*/g, '')
-            });
-        } catch (error) {
-            console.error("Search failed:", error);
-        } finally {
-            setIsLoading(false);
-        }
-    };
 
     const handleSearchMarketing = () => {
         if (!searchTerm.trim()) return;
@@ -144,31 +114,31 @@ const MarketDashboard = ({ onBack, currentLanguage, labels, onMoreDetails }: Mar
             <div onClick={() => setView('rates')} className="glass-panel p-6 rounded-3xl cursor-pointer hover:bg-white/10 transition-all border-emerald-500/20 group">
                 <TrendingUp className="w-10 h-10 text-emerald-400 mb-4 group-hover:scale-110 transition-transform" />
                 <h3 className="text-xl font-bold mb-2">{labels.rates}</h3>
-                <p className="text-gray-400 text-sm">Check daily market prices for crops in your mandi.</p>
+                <p className="text-gray-400 text-sm">{labels.ratesDesc || "Check daily market prices for crops in your mandi."}</p>
             </div>
 
             <div onClick={() => setView('vehicles')} className="glass-panel p-6 rounded-3xl cursor-pointer hover:bg-white/10 transition-all border-blue-500/20 group">
                 <Truck className="w-10 h-10 text-blue-400 mb-4 group-hover:scale-110 transition-transform" />
                 <h3 className="text-xl font-bold mb-2">{labels.vehicles}</h3>
-                <p className="text-gray-400 text-sm">Tractors, harvesters, and transport vehicle prices.</p>
+                <p className="text-gray-400 text-sm">{labels.vehiclesDesc || "Tractors, harvesters, and transport vehicle prices."}</p>
             </div>
 
             <div onClick={() => setView('schemes')} className="glass-panel p-6 rounded-3xl cursor-pointer hover:bg-white/10 transition-all border-amber-500/20 group">
                 <Landmark className="w-10 h-10 text-amber-400 mb-4 group-hover:scale-110 transition-transform" />
                 <h3 className="text-xl font-bold mb-2">{labels.schemes}</h3>
-                <p className="text-gray-400 text-sm">Central and State schemes for subsidies and loans.</p>
+                <p className="text-gray-400 text-sm">{labels.schemesDesc || "Central and State schemes for subsidies and loans."}</p>
             </div>
 
             <div onClick={() => setView('marketing')} className="glass-panel p-6 rounded-3xl cursor-pointer hover:bg-white/10 transition-all border-pink-500/20 group">
                 <BarChart3 className="w-10 h-10 text-pink-400 mb-4 group-hover:scale-110 transition-transform" />
                 <h3 className="text-xl font-bold mb-2">{labels.marketing}</h3>
-                <p className="text-gray-400 text-sm">Success stories, bloggers, and selling strategies.</p>
+                <p className="text-gray-400 text-sm">{labels.marketingDesc || "Success stories, bloggers, and selling strategies."}</p>
             </div>
 
-            <div className="glass-panel p-6 rounded-3xl border-purple-500/10 opacity-50">
-                <BookOpen className="w-10 h-10 text-purple-400 mb-4" />
-                <h3 className="text-xl font-bold mb-2">{labels.advice}</h3>
-                <p className="text-gray-400 text-sm">Included in Real-time Rates search results.</p>
+            <div onClick={() => setView('forecasting')} className="glass-panel p-6 rounded-3xl cursor-pointer hover:bg-white/10 transition-all border-purple-500/20 group">
+                <BookOpen className="w-10 h-10 text-purple-400 mb-4 group-hover:scale-110 transition-transform" />
+                <h3 className="text-xl font-bold mb-2">{labels.forecasting || "Forecasting"}</h3>
+                <p className="text-gray-400 text-sm">{labels.forecastingDesc || "7-day AI predictions for crop market prices."}</p>
             </div>
         </div>
     );
@@ -970,67 +940,7 @@ const MarketDashboard = ({ onBack, currentLanguage, labels, onMoreDetails }: Mar
 
     const staticSchemes = schemeData[currentLanguage] || schemeData['en'];
 
-    const renderRates = () => (
-        <div className="flex flex-col h-full animate-fade-in">
-            {renderSearchBar("Search vegetable (e.g. Tomato)...", handleRateSearch)}
 
-            {ratesResult ? (
-                <div className="flex-1 overflow-y-auto pr-4 custom-scrollbar min-h-0 flex items-center justify-center">
-                    <div className="glass-panel p-8 rounded-3xl border-emerald-500/20 bg-emerald-500/5 w-full max-w-3xl">
-                        <div className="flex justify-between items-start mb-4">
-                            <h3 className="text-xl font-semibold text-emerald-400">Market Rate & Analysis</h3>
-                            <button
-                                onClick={() => playTTS(ratesResult.summary)}
-                                className="p-2 hover:bg-emerald-500/20 rounded-full text-emerald-400 transition-colors"
-                                title="Read Summary"
-                            >
-                                {playingText === ratesResult.summary ? <StopCircle className="w-6 h-6 animate-pulse" /> : <Volume2 className="w-6 h-6" />}
-                            </button>
-                        </div>
-
-                        <div className="space-y-4">
-                            <div className="bg-black/20 p-6 rounded-2xl border border-white/5">
-                                <p className="text-xl font-medium text-white leading-relaxed whitespace-pre-wrap">{ratesResult.summary}</p>
-                            </div>
-
-                            <div className="mt-4">
-                                <button
-                                    onClick={() => {
-                                        if (onMoreDetails) {
-                                            onMoreDetails(searchTerm);
-                                        } else {
-                                            setShowRatesDetails(!showRatesDetails);
-                                        }
-                                    }}
-                                    className="mt-4 text-sm font-bold uppercase tracking-wider text-emerald-400 hover:text-emerald-300 flex items-center gap-2 transition-colors"
-                                >
-                                    {onMoreDetails ? (
-                                        <><ChevronDown className="w-4 h-4" /> More Details</>
-                                    ) : showRatesDetails ? (
-                                        <><ChevronUp className="w-4 h-4" /> Show Less</>
-                                    ) : (
-                                        <><ChevronDown className="w-4 h-4" /> More Details</>
-                                    )}
-                                </button>
-                                {ratesResult.details && !onMoreDetails && showRatesDetails && (
-                                    <div className="bg-white/5 p-6 rounded-2xl border border-white/10 animate-fade-in mt-2">
-                                        <p className="text-gray-300 leading-relaxed text-base whitespace-pre-wrap">
-                                            {ratesResult.details}
-                                        </p>
-                                    </div>
-                                )}
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            ) : !isLoading && (
-                <div className="flex-1 flex flex-col items-center justify-center text-gray-500 opacity-50">
-                    <Sprout className="w-16 h-16 mb-4" />
-                    <p>Search for crops to see details</p>
-                </div>
-            )}
-        </div>
-    );
 
     const renderVehicles = () => (
         <div className="flex flex-col h-full animate-fade-in">
@@ -1094,9 +1004,9 @@ const MarketDashboard = ({ onBack, currentLanguage, labels, onMoreDetails }: Mar
                                         </h3>
                                         <div className="space-y-4">
                                             {Object.entries(selectedVehicle.specs).map(([key, value]) => (
-                                                <div key={key} className="flex justify-between items-center border-b border-white/5 pb-2">
-                                                    <span className="text-gray-400 capitalize">{key}</span>
-                                                    <span className="text-white font-medium">{(value as string)}</span>
+                                                <div key={key} className="flex flex-col sm:flex-row justify-between sm:items-start gap-1 sm:gap-4 border-b border-white/5 pb-2">
+                                                    <span className="text-gray-400 capitalize shrink-0">{key}</span>
+                                                    <span className="text-white font-medium sm:text-right break-words">{(value as string)}</span>
                                                 </div>
                                             ))}
                                         </div>
@@ -1113,9 +1023,10 @@ const MarketDashboard = ({ onBack, currentLanguage, labels, onMoreDetails }: Mar
                                             href={selectedVehicle.official_link}
                                             target="_blank"
                                             rel="noreferrer"
-                                            className="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl transition-all flex items-center justify-center gap-2 group"
+                                            className="w-full py-4 px-4 h-auto min-h-[56px] bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-xl transition-all flex flex-wrap items-center justify-center gap-2 group text-center"
                                         >
-                                            {vLabels.visit} <ExternalLink className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                                            <span>{vLabels.visit}</span>
+                                            <ExternalLink className="w-5 h-5 shrink-0 group-hover:translate-x-1 transition-transform" />
                                         </a>
                                     </div>
                                 </div>
@@ -1228,10 +1139,17 @@ const MarketDashboard = ({ onBack, currentLanguage, labels, onMoreDetails }: Mar
 
             <div className="flex-1 overflow-hidden">
                 {view === 'menu' && <div className="h-full overflow-y-auto custom-scrollbar">{renderMenu()}</div>}
-                {view === 'rates' && renderRates()}
+                {view === 'rates' && <MandiInterface currentLanguage={currentLanguage} />}
+
+
                 {view === 'vehicles' && renderVehicles()}
                 {view === 'vehicle_details' && renderVehicleDetails()}
                 {view === 'schemes' && renderSchemes()}
+                {view === 'forecasting' && (
+                    <div className="flex flex-col h-full animate-fade-in md:p-6 overflow-y-auto min-w-0">
+                        <ForecastingInterface currentLanguage={currentLanguage} labels={labels} />
+                    </div>
+                )}
                 {view === 'marketing' && renderMarketing()}
             </div>
         </div>

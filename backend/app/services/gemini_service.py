@@ -2,6 +2,7 @@ import os
 import requests
 import json
 from typing import Optional, List, Dict, Any
+from datetime import datetime
 from dotenv import load_dotenv
 from functools import lru_cache
 
@@ -23,8 +24,7 @@ class GeminiService:
             self.enabled = True
             print("[GEMINI] REST Service Initialized (Model: gemini-1.5-flash).")
 
-    @lru_cache(maxsize=32)
-    def generate_response(self, message: str, audio_data: Optional[bytes] = None, audio_mime_type: str = "audio/mp3", context: str = "general", use_search: bool = False) -> str:
+    def generate_response(self, message: str, audio_data: Optional[bytes] = None, audio_mime_type: str = "audio/mp3", context: str = "general", use_search: bool = False, history: Optional[List[Dict[str, str]]] = None) -> str:
         if not self.enabled:
             return self._mock_response(message, context)
 
@@ -46,33 +46,77 @@ class GeminiService:
                 else:
                     system_prompt = "You are EventHorizon AI, a helpful assistant for rural Indian communities."
 
-                parts: List[Dict[str, Any]] = []
-                
-                if audio_data is not None:
-                    # Multimodal request: Audio + Prompt
-                    import base64
-                    from typing import cast
-                    encoded_audio = base64.b64encode(cast(bytes, audio_data)).decode('utf-8')
-                    parts.append({
-                        "inline_data": {
-                            "mime_type": audio_mime_type,
-                            "data": encoded_audio
+                # Add current date to system prompt
+                current_date = datetime.now().strftime("%A, %B %d, %Y")
+                system_prompt += f" Today's date is {current_date}."
+
+                if history:
+                    # Sliding window history approach
+                    contents: List[Dict[str, Any]] = []
+                    sys_text = ""
+                    for msg in history:
+                        role = msg['role']
+                        content = msg['content']
+                        if role == 'system':
+                            sys_text = content
+                        elif role == 'user':
+                            contents.append({"role": "user", "parts": [{"text": content}]})
+                        elif role == 'assistant':
+                            contents.append({"role": "model", "parts": [{"text": content}]})
+                            
+                    # Inject audio into the very last user message (which is the incoming message)
+                    if audio_data is not None:
+                        import base64
+                        from typing import cast
+                        encoded_audio = base64.b64encode(cast(bytes, audio_data)).decode('utf-8')
+                        
+                        last_msg = contents[-1] if contents else None
+                        if last_msg and last_msg['role'] == "user":
+                            last_msg['parts'].insert(0, {
+                                "inline_data": {
+                                    "mime_type": audio_mime_type,
+                                    "data": encoded_audio
+                                }
+                            })
+                            
+                    payload: Dict[str, Any] = {
+                        "contents": contents
+                    }
+                    if sys_text:
+                        sys_text += f"\nToday's date is {current_date}."
+                        payload["system_instruction"] = {
+                            "parts": [{"text": sys_text}]
                         }
-                    })
-                    # Instruction for audio processing
-                    prompt_text = f"{system_prompt}\n\nUSER AUDIO INPUT RECEIVED.\n"
-                    if message:
-                        prompt_text += f"ADDITIONAL INSTRUCTIONS: {message}\n"
-                    prompt_text += "TASK: 1. Transcribe the user's speech exactly (in original language).\n2. Provide a helpful response to the query.\n3. FOLLOW ADDITIONAL INSTRUCTIONS IF ANY.\n\nOUTPUT FORMAT:\nTranscribed: <user_speech>\nResponse: <ai_response>"
-                    parts.append({"text": prompt_text})
                 else:
-                    # Text-only request
-                    full_prompt = f"{system_prompt}\n\nUser: {message}\nAssistant:"
-                    parts.append({"text": full_prompt})
+                    # Fallback Text/Audio execution
+                    parts: List[Dict[str, Any]] = []
+                    
+                    if audio_data is not None:
+                        # Multimodal request: Audio + Prompt
+                        import base64
+                        from typing import cast
+                        encoded_audio = base64.b64encode(cast(bytes, audio_data)).decode('utf-8')
+                        parts.append({
+                            "inline_data": {
+                                "mime_type": audio_mime_type,
+                                "data": encoded_audio
+                            }
+                        })
+                        # Instruction for audio processing
+                        prompt_text = f"{system_prompt}\n\nUSER AUDIO INPUT RECEIVED.\n"
+                        if message:
+                            prompt_text += f"ADDITIONAL INSTRUCTIONS: {message}\n"
+                        prompt_text += "TASK: 1. Transcribe the user's speech exactly (in original language).\n2. Provide a helpful response to the query.\n3. FOLLOW ADDITIONAL INSTRUCTIONS IF ANY.\n\nOUTPUT FORMAT:\nTranscribed: <user_speech>\nResponse: <ai_response>"
+                        parts.append({"text": prompt_text})
+                    else:
+                        # Text-only request
+                        full_prompt = f"{system_prompt}\n\nUser: {message}\nAssistant:"
+                        parts.append({"text": full_prompt})
+                    
+                    payload: Dict[str, Any] = {
+                        "contents": [{ "parts": parts }]
+                    }
                 
-                payload: Dict[str, Any] = {
-                    "contents": [{ "parts": parts }]
-                }
 
                 if use_search:
                     payload["tools"] = [{
