@@ -12,3 +12,4 @@ pg8000
 passlib
 pyjwt
 google-generativeai
+psycopg2-binary
