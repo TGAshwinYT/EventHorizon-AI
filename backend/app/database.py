@@ -113,9 +113,11 @@ def apply_ssl_if_needed(url: str, engine_args: dict):
                 separator = "&" if "?" in url else "?"
                 url = f"{url}{separator}sslmode=require"
             
-            # If using Supabase Connection Pooler (6543), we often need prepared_statement_cache_size=0
-            if ":6543" in url and "prepared_statement_cache_size" not in url:
-                url = f"{url}&prepared_statement_cache_size=0"
+            # If using Supabase Connection Pooler (6543), we must ensure prepared statements are handled.
+            # Psycopg2 doesn't use server-side prepared statements by default.
+            # The 'prepared_statement_cache_size' option is invalid in the DSN for psycopg2.
+            if ":6543" in url:
+                pass
                 
     return url
 
