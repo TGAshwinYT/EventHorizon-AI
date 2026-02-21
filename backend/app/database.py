@@ -42,17 +42,22 @@ if not MANDI_DATABASE_URL:
 auth_engine_args = {"pool_size": 10, "max_overflow": 20, "pool_pre_ping": True}
 mandi_engine_args = {"pool_size": 20, "max_overflow": 30, "pool_pre_ping": True}
 
-# For Neon + pg8000, we need to handle SSL context manually
-# Neon usually identifies by neon.tech
-if "neon.tech" in MANDI_DATABASE_URL:
-    # Strip query params as pg8000 doesn't support sslmode/channel_binding in URL
-    if "?" in MANDI_DATABASE_URL:
-        MANDI_DATABASE_URL = MANDI_DATABASE_URL.split("?")[0]
-    
-    ssl_context = ssl.create_default_context()
-    ssl_context.check_hostname = False
-    ssl_context.verify_mode = ssl.CERT_NONE
-    mandi_engine_args["connect_args"] = {"ssl_context": ssl_context}
+# For Remote DBs (Neon/Supabase) + pg8000, we need to handle SSL context manually
+def apply_ssl_if_needed(url: str, engine_args: dict):
+    # Only apply to external hosts that typically require SSL (Neon, Supabase, etc.)
+    if any(host in url for host in ["neon.tech", "supabase", "aws.com", "elephantsql.com"]):
+        # Strip query params as pg8000 doesn't support sslmode/channel_binding in URL
+        cleaned_url = url.split("?")[0]
+        
+        ssl_context = ssl.create_default_context()
+        ssl_context.check_hostname = False
+        ssl_context.verify_mode = ssl.CERT_NONE
+        engine_args["connect_args"] = {"ssl_context": ssl_context}
+        return cleaned_url
+    return url
+
+AUTH_DATABASE_URL = apply_ssl_if_needed(AUTH_DATABASE_URL, auth_engine_args)
+MANDI_DATABASE_URL = apply_ssl_if_needed(MANDI_DATABASE_URL, mandi_engine_args)
 
 auth_engine = create_engine(AUTH_DATABASE_URL, **auth_engine_args)
 mandi_engine = create_engine(MANDI_DATABASE_URL, **mandi_engine_args)
