@@ -2,6 +2,8 @@ import os
 import ssl
 import re
 import sys
+import logging
+import urllib.parse
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy.engine.url import make_url
@@ -29,18 +31,42 @@ def format_db_url(name, url: str) -> str:
         return ""
     
     url = url.strip()
-    original_len = len(url)
     
-    # Identify if we should use psycopg2 (requested for Supabase) or pg8000
+    # If it looks like a key-value string (Supabase style), parse it
+    if "user=" in url and "host=" in url:
+        debug_print(f"Detected key-value format for {name}. Attempting to parse...")
+        try:
+            # Match assignments like key=value or key = value
+            # We handle potential newlines or multiple spaces between pairs
+            kv = {}
+            # Use regex to find all key=value pairs, even if values have special chars
+            matches = re.findall(r'(\w+)\s*=\s*([^\s]+)', url)
+            for k, v in matches:
+                kv[k.lower()] = v
+            
+            if all(k in kv for k in ['user', 'password', 'host', 'dbname']):
+                port = kv.get('port', '5432')
+                # Escape password to handle special chars like @ or :
+                safe_password = urllib.parse.quote_plus(kv['password'])
+                # For Supabase, we default to psycopg2
+                url = f"postgresql+psycopg2://{kv['user']}:{safe_password}@{kv['host']}:{port}/{kv['dbname']}"
+                debug_print(f"Parsed {name} into SQLAlchemy format (with encoded password).")
+            else:
+                debug_print(f"Incomplete key-value pairs for {name}: {list(kv.keys())}")
+        except Exception as e:
+            debug_print(f"Failed to parse key-value string for {name}: {e}")
+
+    # Standardize dialect
     is_supabase = "supabase" in url.lower()
     dialect = "+psycopg2" if is_supabase else "+pg8000"
     
-    debug_print(f"Formatting {name}: original_len={original_len}, is_supabase={is_supabase}")
-    
     # Standardize scheme using regex to be robust against variations
-    # This ensures we have postgresql+dialect:// at the start
-    # We replace any postgres://, postgresql://, or postgresql+something://
-    url = re.sub(r"^postgres(ql)?(\+\w+)?://", f"postgresql{dialect}://", url, count=1)
+    if re.match(r"^postgres(ql)?(\+\w+)?://", url):
+        url = re.sub(r"^postgres(ql)?(\+\w+)?://", f"postgresql{dialect}://", url, count=1)
+    elif not url.startswith("postgresql"):
+        # If it doesn't have a protocol at all after parsing attempts, we assume it's just raw
+        # but create_engine will still fail later if it's not a URL.
+        pass
     
     return url
 
