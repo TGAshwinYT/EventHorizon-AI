@@ -21,6 +21,9 @@ def get_python_executable():
     """Find the best python executable, preferring virtual environments."""
     # Possible paths for venv python on Windows and Unix
     candidates = [
+        # backend/venv_win (Windows specific)
+        os.path.join(BACKEND_DIR, "venv_win", "Scripts", "python.exe"),
+        os.path.join(BACKEND_DIR, "venv_win", "bin", "python.exe"),
         # backend/venv (Windows standard vs MSYS2/Posix)
         os.path.join(BACKEND_DIR, "venv", "bin", "python.exe"),
         os.path.join(BACKEND_DIR, "venv", "Scripts", "python.exe"),

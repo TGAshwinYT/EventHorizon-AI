@@ -5,7 +5,7 @@ import os
 
 SECRET_KEY = os.getenv("SECRET_KEY", "default_secret_key_needs_change")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
 
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
@@ -26,5 +26,12 @@ def decode_access_token(token: str):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         return payload
-    except jwt.InvalidTokenError:
+    except jwt.ExpiredSignatureError:
+        print("[AUTH DEBUG] Token has expired")
+        return None
+    except jwt.InvalidTokenError as e:
+        print(f"[AUTH DEBUG] Invalid token: {e}")
+        return None
+    except Exception as e:
+        print(f"[AUTH DEBUG] Unexpected auth error: {e}")
         return None

@@ -1,18 +1,22 @@
-from flask import Blueprint, request, jsonify, abort
+from fastapi import APIRouter, Request, HTTPException, Form, File, UploadFile, Depends, Header
+from fastapi.responses import JSONResponse
 import base64
 import os
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Union
+from pydantic import BaseModel
 from app.services.gemini_service import GeminiService
 from app.services.audio_service import AudioService
-from app.database import SessionLocal
+from app.database import get_auth_db, AuthSessionLocal
 from app.models import User, ChatHistory
 from app.auth import decode_access_token
+from sqlalchemy.orm import Session
+from app.llm_memory_manager import process_and_trim_history
 
 # Initialize services
 gemini_service = GeminiService()
 audio_service = AudioService()
 
-router = Blueprint('chat', __name__)
+router = APIRouter()
 
 def detect_language(text: str, default: str = 'en') -> str:
     """Simple script-based language detection for Indian languages"""
@@ -25,28 +29,58 @@ def detect_language(text: str, default: str = 'en') -> str:
     elif any('\u0A80' <= c <= '\u0AFF' for c in text): return 'gu'  # Gujarati
     return default
 
-@router.route('/', methods=['POST'], strict_slashes=False)
-def chat_endpoint():
+def get_user_db():
+    db = AuthSessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+class TTSRequest(BaseModel):
+    text: str
+    language: str = 'en'
+
+class EnvUpdate(BaseModel):
+    GEMINI_API_KEY: Optional[str] = None
+    HUGGINGFACE_API_KEY: Optional[str] = None
+
+class GenerateContentRequest(BaseModel):
+    topic: str
+    type: str
+    language: str = 'en'
+
+@router.post('')
+async def chat_endpoint(request: Request):
     """
     Main chat endpoint supporting both text and voice input.
     Pipeline: Audio -> STT -> Translate -> Gemini -> Translate -> TTS
     """
     # Handle both JSON (from frontend text) and Multipart (potentially for audio)
-    if request.is_json:
-        data = request.json
+    content_type = request.headers.get('content-type', '')
+    
+    message = None
+    language = 'en'
+    voice_enabled = False
+    context = 'general'
+    audio: Optional[UploadFile] = None
+    
+    if 'application/json' in content_type:
+        data = await request.json()
         message = data.get('message')
-        # ... rest of the file ...
         language = data.get('language', 'en')
         voice_enabled = data.get('voice_enabled', False)
         context = data.get('context', 'general')
-        audio = None
+    elif 'multipart/form-data' in content_type:
+        form = await request.form()
+        message = form.get('message')
+        language = form.get('language', 'en')
+        voice_enabled_str = form.get('voice_enabled')
+        voice_enabled = voice_enabled_str == 'true' or voice_enabled_str == True
+        context = form.get('context', 'general')
+        audio = form.get('audio') # This will be UploadFile or None
     else:
-        message = request.form.get('message')
-        language = request.form.get('language', 'en')
-        # Convert string 'true'/'false' to boolean if it comes from form data
-        voice_enabled = request.form.get('voice_enabled') == 'true' or request.form.get('voice_enabled') == True
-        context = request.form.get('context', 'general')
-        audio = request.files.get('audio')
+        # Fallback handling mostly for robustness
+        raise HTTPException(status_code=400, detail="Unsupported Content-Type")
 
     # Auth Check: Get User ID
     user_id = None
@@ -57,13 +91,25 @@ def chat_endpoint():
             payload = decode_access_token(token)
             if payload:
                 username = payload.get("sub")
-                db = SessionLocal()
+                db = AuthSessionLocal()
                 user = db.query(User).filter(User.username == username).first()
                 if user:
                     user_id = user.id
                 db.close()
         except Exception as e:
             print(f"[AUTH ERROR] {e}")
+
+    # Retrieve memory mapped from DB history for this user
+    session_db_history = []
+    if user_id:
+        db = AuthSessionLocal()
+        raw_history = db.query(ChatHistory).filter(ChatHistory.user_id == user_id).order_by(ChatHistory.timestamp).all()
+        for h in raw_history:
+            session_db_history.append({
+                "role": 'assistant' if h.sender == 'ai' else h.sender,
+                "content": h.message
+            })
+        db.close()
 
     user_message = message
     
@@ -81,15 +127,10 @@ def chat_endpoint():
     }
 
     # Step 2: Determine Output Language (EARLY)
-    # STRICTLY use the requested language if provided.
     if language:
         target_lang = language
     else:
-        # This 'detected_lang' variable is not defined here if 'language' is not provided.
-        # It will be defined later in the text flow.
-        # For now, setting a default or ensuring it's handled in the text flow.
-        # A more robust solution might involve detecting language from user_message here if language is None.
-        target_lang = 'en' # Default to English if not explicitly set and not detected yet.
+        target_lang = 'en'
         
     target_lang_name = LANGUAGE_NAMES.get(target_lang, 'English')
     
@@ -109,7 +150,14 @@ def chat_endpoint():
     }
     
     # Instruction for structured response (Summary + Details)
-    if request.is_json and request.json.get('type') == 'market':
+    # Check if request has 'type' == 'market'
+    # Since we manually parsed, we need to check data/form again
+    type_val = None
+    if 'application/json' in content_type:
+        data = await request.json()
+        type_val = data.get('type')
+    
+    if type_val == 'market':
         use_search_flag = True
         
         # Get localized labels
@@ -136,9 +184,13 @@ def chat_endpoint():
     ai_response = ""
     
     if audio:
-        audio_bytes = audio.read()
-        # Pass structured_instruction as message to be included in system prompt for audio
-        gemini_output = gemini_service.generate_response(message=structured_instruction, audio_data=audio_bytes, audio_mime_type='audio/ogg', context=context, use_search=use_search_flag)
+        audio_bytes = await audio.read()
+        # Create a new user message asking to transcribe and answer
+        extended_instruction = structured_instruction + "\nTASK: 1. Transcribe the user's speech exactly (in original language).\n2. Provide a helpful response to the query.\n3. FOLLOW ADDITIONAL INSTRUCTIONS IF ANY.\n\nOUTPUT FORMAT:\nTranscribed: <user_speech>\nResponse: <ai_response>"
+        
+        trimmed_history = process_and_trim_history(session_db_history, extended_instruction, max_conversational_items=6)
+        
+        gemini_output = gemini_service.generate_response(message="", audio_data=audio_bytes, audio_mime_type='audio/ogg', context=context, use_search=use_search_flag, history=trimmed_history)
         print(f"[GEMINI AUDIO] Raw output: {gemini_output[:100]}...")
         
         # Parse Output
@@ -167,9 +219,6 @@ def chat_endpoint():
         else:
              detected_lang = detect_language(user_message, language)
         
-        # Translate input to English ONLY if detected language is different and target is English (or just always for good understanding)
-        # But for direct generation, we can feed localized query to Gemini. 
-        # However, translating to English usually gives better reasoning.
         if detected_lang != 'en':
             english_query = audio_service.translate_text(user_message, 'en')
             print(f"[TRANSLATE] {detected_lang}->en: {english_query}")
@@ -177,17 +226,18 @@ def chat_endpoint():
             english_query = user_message
             
         final_query = english_query + "\n\n" + structured_instruction
-        ai_response = gemini_service.generate_response(final_query, context=context, use_search=use_search_flag)
+        trimmed_history = process_and_trim_history(session_db_history, final_query, max_conversational_items=6)
+        
+        ai_response = gemini_service.generate_response(message="", context=context, use_search=use_search_flag, history=trimmed_history)
         print(f"[GEMINI TEXT] {ai_response[:100]}...")
         
     else:
-        return jsonify({"error": "No message or audio provided"}), 400
+        raise HTTPException(status_code=400, detail="No message or audio provided")
 
     # Step 3: Translation Skipped (Gemini handles it via instruction)
     final_response = ai_response
     
     # Update detected_lang for frontend sync
-    # Ensure detected_lang is always set, especially if 'language' was provided and no audio.
     if 'detected_lang' not in locals():
         detected_lang = target_lang
     
@@ -206,7 +256,7 @@ def chat_endpoint():
     # Save to DB
     if user_id:
         try:
-            db = SessionLocal()
+            db = AuthSessionLocal()
             db.add(ChatHistory(user_id=user_id, message=user_message, sender="user"))
             db.add(ChatHistory(user_id=user_id, message=final_response, sender="ai"))
             db.commit()
@@ -214,32 +264,34 @@ def chat_endpoint():
         except Exception as e:
             print(f"[DB ERROR] Could not save chat history: {e}")
     
-    return jsonify({
+    return {
         "response_text": final_response,
         "user_text": user_message,
         "audio_url": audio_url,
         "detected_language": detected_lang
-    })
+    }
 
-@router.route('/history', methods=['GET'])
-def get_chat_history():
-    auth_header = request.headers.get('Authorization')
-    if not auth_header or not auth_header.startswith("Bearer "):
-        return jsonify({"error": "Unauthorized"}), 401
+@router.get('/history')
+def get_chat_history(authorization: str = Header(None)):
+    print(f"[CHAT DEBUG] Auth Header: {authorization[:20] if authorization else 'None'}...")
+    if not authorization or not authorization.startswith("Bearer "):
+        print("[CHAT DEBUG] Missing or invalid Authorization header")
+        raise HTTPException(status_code=401, detail="Unauthorized")
     
     try:
-        token = auth_header.split(" ")[1]
+        token = authorization.split(" ")[1]
         payload = decode_access_token(token)
         if not payload:
-            return jsonify({"error": "Invalid token"}), 401
+            print("[CHAT DEBUG] Token decode failed (payload is None)")
+            raise HTTPException(status_code=401, detail="Invalid token")
             
         username = payload.get("sub")
-        db = SessionLocal()
+        db = AuthSessionLocal()
         user = db.query(User).filter(User.username == username).first()
         
         if not user:
             db.close()
-            return jsonify({"error": "User not found"}), 404
+            raise HTTPException(status_code=404, detail="User not found")
             
         history = db.query(ChatHistory).filter(ChatHistory.user_id == user.id).order_by(ChatHistory.timestamp).all()
         
@@ -253,61 +305,63 @@ def get_chat_history():
             })
             
         db.close()
-        return jsonify(messages)
+        return messages
         
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"[HISTORY ERROR] {e}")
-        return jsonify({"error": "Failed to fetch history"}), 500
+        raise HTTPException(status_code=500, detail="Failed to fetch history")
 
-@router.route('/history', methods=['DELETE'])
-def delete_all_history():
-    auth_header = request.headers.get('Authorization')
-    if not auth_header or not auth_header.startswith("Bearer "):
-        return jsonify({"error": "Unauthorized"}), 401
+@router.delete('/history')
+def delete_all_history(authorization: str = Header(None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Unauthorized")
     
     try:
-        token = auth_header.split(" ")[1]
+        token = authorization.split(" ")[1]
         payload = decode_access_token(token)
         if not payload:
-            return jsonify({"error": "Invalid token"}), 401
+            raise HTTPException(status_code=401, detail="Invalid token")
             
         username = payload.get("sub")
-        db = SessionLocal()
+        db = AuthSessionLocal()
         user = db.query(User).filter(User.username == username).first()
         
         if not user:
             db.close()
-            return jsonify({"error": "User not found"}), 404
+            raise HTTPException(status_code=404, detail="User not found")
             
         # Delete all history for this user
         db.query(ChatHistory).filter(ChatHistory.user_id == user.id).delete()
         db.commit()
         db.close()
-        return jsonify({"message": "History deleted successfully"})
+        return {"message": "History deleted successfully"}
         
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"[HISTORY DELETE ERROR] {e}")
-        return jsonify({"error": "Failed to delete history"}), 500
+        raise HTTPException(status_code=500, detail="Failed to delete history")
 
-@router.route('/history/<int:msg_id>', methods=['DELETE'])
-def delete_message(msg_id):
-    auth_header = request.headers.get('Authorization')
-    if not auth_header or not auth_header.startswith("Bearer "):
-        return jsonify({"error": "Unauthorized"}), 401
+@router.delete('/history/{msg_id}')
+def delete_message(msg_id: int, authorization: str = Header(None)):
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Unauthorized")
     
     try:
-        token = auth_header.split(" ")[1]
+        token = authorization.split(" ")[1]
         payload = decode_access_token(token)
         if not payload:
-            return jsonify({"error": "Invalid token"}), 401
+             raise HTTPException(status_code=401, detail="Invalid token")
             
         username = payload.get("sub")
-        db = SessionLocal()
+        db = AuthSessionLocal()
         user = db.query(User).filter(User.username == username).first()
         
         if not user:
             db.close()
-            return jsonify({"error": "User not found"}), 404
+            raise HTTPException(status_code=404, detail="User not found")
             
         # Delete specific message
         msg = db.query(ChatHistory).filter(ChatHistory.id == msg_id, ChatHistory.user_id == user.id).first()
@@ -316,23 +370,22 @@ def delete_message(msg_id):
             db.commit()
         
         db.close()
-        return jsonify({"message": "Message deleted"})
+        return {"message": "Message deleted"}
         
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"[MESSAGE DELETE ERROR] {e}")
-        return jsonify({"error": "Failed to delete message"}), 500
-@router.route('/tts', methods=['POST'])
-def generate_tts():
+        raise HTTPException(status_code=500, detail="Failed to delete message")
+
+@router.post('/tts')
+def generate_tts(data: TTSRequest):
     """
     Generate TTS audio for a given text.
     """
-    data = request.json
-    text = data.get('text')
-    language = data.get('language', 'en')
+    text = data.text
+    language = data.language
     
-    if not text:
-        return jsonify({"error": "No text provided"}), 400
-        
     # Clean text for TTS
     import re
     clean_text = re.sub(r'[*#_`~-]', '', text)
@@ -342,24 +395,22 @@ def generate_tts():
         if audio_bytes:
             audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
             audio_url = f"data:audio/mp3;base64,{audio_base64}"
-            return jsonify({"audio_url": audio_url})
+            return {"audio_url": audio_url}
     except Exception as e:
-        return jsonify({"error": f"TTS Failure: {str(e)}"}), 500
+        raise HTTPException(status_code=500, detail=f"TTS Failure: {str(e)}")
     
-    return jsonify({"error": "Failed to generate audio (Unknown)"}), 500
+    raise HTTPException(status_code=500, detail="Failed to generate audio (Unknown)")
 
-
-@router.route('/settings/env', methods=['POST'])
-def update_env_settings():
+@router.post('/settings/env')
+def update_env_settings(data: EnvUpdate):
     """
     Update .env file with provided settings.
     """
-    data = request.json
-    gemini_key = data.get('GEMINI_API_KEY')
-    hf_key = data.get('HUGGINGFACE_API_KEY')
+    gemini_key = data.GEMINI_API_KEY
+    hf_key = data.HUGGINGFACE_API_KEY
     
     if not gemini_key and not hf_key:
-        return jsonify({"message": "No keys provided to update"}), 200
+        return {"message": "No keys provided to update"}
         
     env_path = '.env'
     
@@ -400,24 +451,20 @@ def update_env_settings():
         from dotenv import load_dotenv
         load_dotenv(override=True)
             
-        return jsonify({"message": "Settings updated successfully"})
+        return {"message": "Settings updated successfully"}
     except Exception as e:
         print(f"[ENV UPDATE ERROR] {e}")
-        return jsonify({"error": "Failed to update settings"}), 500
+        raise HTTPException(status_code=500, detail="Failed to update settings")
 
-@router.route('/generate', methods=['POST'])
-def generate_content():
+@router.post('/generate')
+def generate_content(data: GenerateContentRequest):
     """
     Generic endpoint to generate structured content via Gemini.
     Used for Marketing blogs, Schemes, Vehicle details, etc.
     """
-    data = request.json
-    topic = data.get('topic')
-    type_ = data.get('type') # 'marketing', 'schemes', 'vehicles'
-    language = data.get('language', 'en')
-    
-    if not topic or not type_:
-        return jsonify({"error": "Missing topic or type"}), 400
+    topic = data.topic
+    type_ = data.type
+    language = data.language
         
     prompt = ""
     if type_ == 'marketing':
@@ -435,9 +482,9 @@ def generate_content():
         import json
         json_match = re.search(r'\{.*\}|\[.*\]', response, re.DOTALL)
         if json_match:
-            return jsonify(json.loads(json_match.group(0)))
+            return json.loads(json_match.group(0))
         else:
-            return jsonify({"error": "Failed to parse generation", "raw": response}), 500
+            raise HTTPException(status_code=500, detail={"error": "Failed to parse generation", "raw": response})
     except Exception as e:
         print(f"[GENERATE ERROR] {e}")
-        return jsonify({"error": str(e)}), 500
+        raise HTTPException(status_code=500, detail=str(e))

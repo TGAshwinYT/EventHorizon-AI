@@ -17,20 +17,124 @@ interface SettingsProps {
     currentLanguage: string;
     onLanguageChange: (lang: string) => void;
     username: string | null;
-    onUpdateProfile: (name: string, avatar?: string) => void;
+    displayName: string | null;
+    avatarUrl: string | null;
+    token: string | null;
+    onUpdateProfile: (updates: { displayName?: string, avatarUrl?: string }) => void;
     onLogout: () => void;
 }
 
 
-const Settings = ({ onBack, messages, onDeleteMessage, onClearHistory, currentLanguage, onLanguageChange, username, onUpdateProfile, onLogout }: SettingsProps) => {
+const Settings = ({ onBack, messages, onDeleteMessage, onClearHistory, currentLanguage, onLanguageChange, username, displayName, avatarUrl, token, onUpdateProfile, onLogout }: SettingsProps) => {
     const [activeTab, setActiveTab] = useState<'profile' | 'history' | 'language' | 'data'>('profile');
-    const [newUsername, setNewUsername] = useState(username || '');
+    const [newDisplayName, setNewDisplayName] = useState(displayName || '');
+    const [newAvatar, setNewAvatar] = useState(avatarUrl || '');
     const [status, setStatus] = useState('');
 
-    const handleSaveProfile = () => {
-        onUpdateProfile(newUsername);
-        setStatus('Profile updated!');
+    // Change Password states
+    const [currentPwd, setCurrentPwd] = useState('');
+    const [newPwd, setNewPwd] = useState('');
+    const [confirmPwd, setConfirmPwd] = useState('');
+
+    const handleSaveProfile = async () => {
+        try {
+            const res = await fetch('/api/auth/profile', {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    display_name: newDisplayName,
+                    avatar_url: newAvatar
+                })
+            });
+            if (res.ok) {
+                onUpdateProfile({ displayName: newDisplayName, avatarUrl: newAvatar });
+                setStatus('Profile updated!');
+            } else {
+                setStatus('Failed to update profile');
+            }
+        } catch (e) {
+            console.error(e);
+            setStatus('Error updating profile');
+        }
         setTimeout(() => setStatus(''), 2000);
+    };
+
+    const handleChangePassword = async () => {
+        if (newPwd !== confirmPwd) {
+            alert("New passwords do not match!");
+            return;
+        }
+        try {
+            const res = await fetch('/api/auth/change-password', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    current_password: currentPwd,
+                    new_password: newPwd
+                })
+            });
+            if (res.ok) {
+                setStatus('Password changed!');
+                setCurrentPwd('');
+                setNewPwd('');
+                setConfirmPwd('');
+            } else {
+                const err = await res.json();
+                alert(err.detail || 'Failed to change password');
+            }
+        } catch (e) {
+            console.error(e);
+            alert('Error updating password');
+        }
+        setTimeout(() => setStatus(''), 2000);
+    };
+
+    const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            const reader = new FileReader();
+            reader.onloadend = () => {
+                setNewAvatar(reader.result as string);
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+
+    const handleImportData = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = async (event) => {
+            try {
+                const jsonData = JSON.parse(event.target?.result as string);
+                const res = await fetch('/api/auth/import', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`
+                    },
+                    body: JSON.stringify(jsonData)
+                });
+                if (res.ok) {
+                    const result = await res.json();
+                    alert(result.message);
+                    window.location.reload(); // Reload to show imported history
+                } else {
+                    alert('Failed to import data');
+                }
+            } catch (err) {
+                console.error(err);
+                alert('Invalid JSON file');
+            }
+        };
+        reader.readAsText(file);
     };
 
     const handleDownloadData = () => {
@@ -103,26 +207,82 @@ const Settings = ({ onBack, messages, onDeleteMessage, onClearHistory, currentLa
                                 My Profile
                             </h3>
                             <div className="bg-white/5 p-6 rounded-2xl border border-white/10">
-                                <div className="flex items-center gap-6 mb-6">
-                                    <div className="w-20 h-20 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-3xl font-bold border-4 border-black/50 shadow-lg">
-                                        {username?.charAt(0).toUpperCase()}
+                                <div className="flex items-center gap-6 mb-8">
+                                    <div className="relative group">
+                                        <div className="w-24 h-24 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-3xl font-bold border-4 border-black/50 shadow-xl overflow-hidden">
+                                            {newAvatar ? (
+                                                <img src={newAvatar} alt="Avatar" className="w-full h-full object-cover" />
+                                            ) : (
+                                                displayName?.charAt(0).toUpperCase() || username?.charAt(0).toUpperCase()
+                                            )}
+                                        </div>
+                                        <label className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer rounded-full text-xs font-bold text-white">
+                                            Change
+                                            <input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} />
+                                        </label>
                                     </div>
-                                    <div>
+                                    <div className="flex-1">
                                         <label className="block text-sm text-gray-400 mb-1">Display Name</label>
                                         <input
                                             type="text"
-                                            value={newUsername}
-                                            onChange={(e) => setNewUsername(e.target.value)}
-                                            className="bg-black/20 border border-white/10 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-blue-500/50 w-full max-w-xs"
+                                            value={newDisplayName}
+                                            onChange={(e) => setNewDisplayName(e.target.value)}
+                                            placeholder={username || ''}
+                                            className="bg-black/20 border border-white/10 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-blue-500/50 w-full max-w-sm"
                                         />
+                                        <p className="text-xs text-gray-500 mt-2">Personalize how your name appears in the app.</p>
                                     </div>
                                 </div>
                                 <button
                                     onClick={handleSaveProfile}
-                                    className="px-6 py-2 bg-blue-600 hover:bg-blue-500 rounded-xl font-medium transition-colors flex items-center gap-2"
+                                    className="px-8 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl font-bold border border-blue-400/30 transition-all flex items-center gap-2"
                                 >
-                                    <Save className="w-4 h-4" />
-                                    Save Changes
+                                    <Save className="w-5 h-5" />
+                                    Save Profile
+                                </button>
+                            </div>
+
+                            <div className="bg-white/5 p-6 rounded-2xl border border-white/10 mt-8">
+                                <h4 className="text-lg font-bold mb-4 flex items-center gap-2">
+                                    <Save className="w-5 h-5 text-purple-400" />
+                                    Change Password
+                                </h4>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+                                    <div>
+                                        <label className="block text-sm text-gray-400 mb-1">Current Password</label>
+                                        <input
+                                            type="password"
+                                            value={currentPwd}
+                                            onChange={(e) => setCurrentPwd(e.target.value)}
+                                            className="bg-black/20 border border-white/10 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-purple-500/50 w-full"
+                                        />
+                                    </div>
+                                    <div className="hidden md:block"></div>
+                                    <div>
+                                        <label className="block text-sm text-gray-400 mb-1">New Password</label>
+                                        <input
+                                            type="password"
+                                            value={newPwd}
+                                            onChange={(e) => setNewPwd(e.target.value)}
+                                            className="bg-black/20 border border-white/10 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-purple-500/50 w-full"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm text-gray-400 mb-1">Confirm New Password</label>
+                                        <input
+                                            type="password"
+                                            value={confirmPwd}
+                                            onChange={(e) => setConfirmPwd(e.target.value)}
+                                            className="bg-black/20 border border-white/10 rounded-xl px-4 py-2 text-white focus:outline-none focus:border-purple-500/50 w-full"
+                                        />
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={handleChangePassword}
+                                    className="px-8 py-3 bg-purple-600 hover:bg-purple-500 rounded-xl font-bold border border-purple-400/30 transition-all flex items-center gap-2"
+                                >
+                                    <Save className="w-5 h-5" />
+                                    Update Password
                                 </button>
                             </div>
 
@@ -217,14 +377,56 @@ const Settings = ({ onBack, messages, onDeleteMessage, onClearHistory, currentLa
                                 Data & Privacy
                             </h3>
                             <div className="bg-white/5 p-6 rounded-2xl border border-white/10">
-                                <h4 className="font-bold text-lg mb-2">Download Your Data</h4>
-                                <p className="text-gray-400 mb-6">You can download a copy of your profile information and conversation history in JSON format.</p>
+                                <h4 className="font-bold text-lg mb-2">Export Data</h4>
+                                <p className="text-gray-400 mb-6">Download a copy of your profile information and conversation history in JSON format.</p>
                                 <button
                                     onClick={handleDownloadData}
                                     className="px-6 py-3 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl font-medium transition-colors flex items-center gap-2"
                                 >
                                     <Download className="w-5 h-5" />
-                                    Download My Data
+                                    Download JSON
+                                </button>
+                            </div>
+
+                            <div className="bg-white/5 p-6 rounded-2xl border border-white/10">
+                                <h4 className="font-bold text-lg mb-2">Import Data</h4>
+                                <p className="text-gray-400 mb-6">Restore your conversation history from a previously downloaded JSON file.</p>
+                                <label className="px-6 py-3 bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 border border-blue-500/30 rounded-xl font-medium transition-colors flex items-center justify-center gap-2 cursor-pointer w-fit">
+                                    <Download className="w-5 h-5 rotate-180" />
+                                    Upload JSON File
+                                    <input type="file" className="hidden" accept=".json" onChange={handleImportData} />
+                                </label>
+                            </div>
+
+                            <div className="bg-red-500/10 p-6 rounded-2xl border border-red-500/20">
+                                <h4 className="font-bold text-lg text-red-500 mb-2">Danger Zone</h4>
+                                <p className="text-gray-400 mb-6">Permanently delete your account and all associated data. This action cannot be undone.</p>
+                                <button
+                                    onClick={async () => {
+                                        if (window.confirm('Are you ABSOLUTELY SURE? This will permanently delete your account and all data. This action cannot be undone.')) {
+                                            try {
+                                                const token = localStorage.getItem('token');
+                                                const res = await fetch('/api/auth/profile', {
+                                                    method: 'DELETE',
+                                                    headers: { 'Authorization': `Bearer ${token}` }
+                                                });
+                                                if (res.ok) {
+                                                    alert('Account deleted successfully.');
+                                                    localStorage.clear(); // Ensure absolute data obliteration
+                                                    onLogout();
+                                                } else {
+                                                    alert('Failed to delete account.');
+                                                }
+                                            } catch (e) {
+                                                console.error(e);
+                                                alert('An error occurred.');
+                                            }
+                                        }
+                                    }}
+                                    className="px-6 py-3 bg-red-500/20 hover:bg-red-500/30 text-red-400 border border-red-500/30 rounded-xl font-medium transition-colors flex items-center gap-2"
+                                >
+                                    <Trash2 className="w-5 h-5" />
+                                    Delete Account
                                 </button>
                             </div>
                         </div>

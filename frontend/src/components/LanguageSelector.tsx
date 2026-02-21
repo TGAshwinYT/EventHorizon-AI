@@ -28,9 +28,9 @@ const LanguageSelector = ({ currentLanguage, onLanguageChange }: LanguageSelecto
         <div className="relative">
             <button
                 onClick={() => setIsOpen(!isOpen)}
-                className="flex items-center gap-2 px-4 py-2 rounded-full glass-button text-sm text-gray-300 hover:text-white transition-all"
+                className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-black/40 backdrop-blur-md border border-white/10 text-sm font-medium text-gray-200 hover:text-white hover:bg-black/60 transition-all shadow-lg"
             >
-                <Globe className="w-4 h-4" />
+                <Globe className="w-4 h-4" fill="currentColor" />
                 <span>{currentLabel}</span>
             </button>
 

@@ -1,8 +1,11 @@
-from flask import Blueprint, jsonify
+from fastapi import APIRouter, Query, Request, Depends
+from fastapi.responses import JSONResponse
 
-router = Blueprint('market', __name__)
+from app.database import MandiSessionLocal, get_mandi_db
 
-@router.route('/', methods=['GET'])
+router = APIRouter()
+
+@router.get('/')
 def get_market_data():
     """Get current agricultural market prices"""
     data = [
@@ -14,13 +17,125 @@ def get_market_data():
         {"name": "Carrot", "price": "₹950 / quintal", "location": "Haryana", "trend": "stable"},
         {"name": "Rice (Basmati)", "price": "₹3,500 / quintal", "location": "Punjab", "trend": "up"},
     ]
-    return jsonify(data)
+    return data
 
-@router.route('/courses', methods=['GET'])
-def get_courses():
+
+from sqlalchemy.orm import Session
+
+@router.get('/mandi')
+def get_mandi_rates(
+    crop: str = Query(..., description="Crop Name"), 
+    state: str = Query(..., description="State Name"),
+    district: str = Query(None, description="Optional District Name"),
+    db: Session = Depends(get_mandi_db)
+):
+    """Get real-time Mandi rates from DB (synced via background job)"""
+    from app.services.ogd_api import get_mandi_data_from_db
+    # get_mandi_data_from_db handles the logic, db session is passed cleanly
+    return get_mandi_data_from_db(db, crop, state, district)
+
+@router.get('/districts')
+def get_districts(
+    crop: str = Query(..., description="Crop Name"),
+    state: str = Query(..., description="State Name"),
+    db: Session = Depends(get_mandi_db)
+):
+    """Get distinct districts for a given crop and state"""
+    from app.models import MandiRate
+    districts = db.query(MandiRate.district).filter(
+        MandiRate.state == state,
+        MandiRate.commodity == crop
+    ).distinct().all()
+    return {"districts": sorted([d[0] for d in districts if d[0]])}
+
+
+@router.get('/forecast')
+def get_price_forecast(
+    crop: str = Query(..., description="Crop Name"),
+    state: str = Query(..., description="State Name"),
+    db: Session = Depends(get_mandi_db)
+):
+    """Predict future mandi prices using Prophet for the next 7 days"""
+    from app.models import MandiRate
+    from datetime import datetime, timedelta
+    import pandas as pd
+    from prophet import Prophet
+
+    # 1. Fetch historical data for the last 30 days
+    cutoff_date = datetime.utcnow() - timedelta(days=30)
+    records = db.query(MandiRate).filter(
+        MandiRate.state == state,
+        MandiRate.commodity == crop,
+        MandiRate.modal_price != None,
+        MandiRate.updated_at >= cutoff_date
+    ).order_by(MandiRate.updated_at.asc()).all()
+
+    if not records:
+        return []
+
+    # 2. Format into Pandas DataFrame
+    data = []
+    
+    for r in records:
+        data.append({
+            "ds": r.updated_at,
+            "y": r.modal_price
+        })
+        
+    df = pd.DataFrame(data)
+
+    # Aggregate daily to smooth out multiple updates in one day
+    df_daily = df.groupby(df['ds'].dt.date)['y'].mean().reset_index()
+    # rename columns strictly to ds and y
+    df_daily.columns = ['ds', 'y']
+    # convert ds back to datetime for prophet
+    df_daily['ds'] = pd.to_datetime(df_daily['ds'])
+
+    historical_json = []
+    for _, row in df_daily.iterrows():
+        historical_json.append({
+            "date": row['ds'].strftime("%Y-%m-%d"),
+            "price": int(row['y']),
+            "isForecast": False
+        })
+
+    # Prophet requires at least 2 non-NaN rows to fit
+    if len(df_daily) < 2:
+        return []
+
+    # 3. Initialize and fit Prophet model
+    # Disabling yearly/weekly seasonality since we only have 30 days of data
+    m = Prophet(daily_seasonality=False, yearly_seasonality=False, weekly_seasonality=False)
+    m.fit(df_daily)
+
+    # 4. Generate dates for next 7 days and predict
+    future = m.make_future_dataframe(periods=7)
+    forecast = m.predict(future)
+
+    # 5. Extract only the 7 future predicted days and format
+    future_forecast = forecast.tail(7)
+    
+    forecast_json = []
+    for _, row in future_forecast.iterrows():
+        pred_price = row['yhat']
+        # Ensure predicted price doesn't drop to absurd negatives
+        min_hist = df_daily['y'].min()
+        pred_price = max(min_hist * 0.5, pred_price)
+        
+        forecast_json.append({
+            "date": row['ds'].strftime("%Y-%m-%d"),
+            "price": int(round(pred_price)),
+            "isForecast": True
+        })
+
+    # Combine historical and forecasted data
+    return historical_json + forecast_json
+
+
+
+@router.get('/courses')
+def get_courses(language: str = Query('en')):
     """Get available skill development courses with localization"""
-    from flask import request
-    language = request.args.get('language', 'en')
     
     # Base English Data (Titles remain constant)
     courses_en = [
@@ -181,4 +296,4 @@ def get_courses():
         course['study_material'] = trans_data.get('study_material', course['study_material'])
         final_courses.append(course)
 
-    return jsonify(final_courses)
+    return final_courses
