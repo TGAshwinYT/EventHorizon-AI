@@ -100,13 +100,23 @@ def apply_ssl_if_needed(url: str, engine_args: dict):
             engine_args["connect_args"] = {"ssl_context": ssl_context}
             return cleaned_url
         
-        # If using psycopg2 (Supabase), it supports the URL parameters directly
-        # so we don't strictly need to modify the URL or args if sslmode is in the string.
-        # But we ensure it's there if missing.
-        if "psycopg2" in url and "sslmode" not in url:
-            separator = "&" if "?" in url else "?"
-            return f"{url}{separator}sslmode=require"
+        # If using psycopg2 (Supabase)
+        if "psycopg2" in url:
+            # Render networking can be tricky with Supabase IPv6 on port 5432
+            # Connection pooler on 6543 is generally more stable
+            if ":5432" in url:
+                debug_print("WARNING: Using port 5432 for Supabase on Render can sometimes cause 'Network is unreachable' (IPv6 issue).")
+                debug_print("TIP: Switch to port 6543 (Connection Pooler) in your Render AUTH_DATABASE_URL if this fails.")
             
+            # Ensure sslmode=require is present
+            if "sslmode" not in url:
+                separator = "&" if "?" in url else "?"
+                url = f"{url}{separator}sslmode=require"
+            
+            # If using Supabase Connection Pooler (6543), we often need prepared_statement_cache_size=0
+            if ":6543" in url and "prepared_statement_cache_size" not in url:
+                url = f"{url}&prepared_statement_cache_size=0"
+                
     return url
 
 AUTH_DATABASE_URL = apply_ssl_if_needed(AUTH_DATABASE_URL, auth_engine_args)
