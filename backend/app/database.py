@@ -1,4 +1,5 @@
 import os
+import ssl
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
@@ -12,15 +13,46 @@ DEFAULT_MANDI_URL = "postgresql+pg8000://postgres:root@localhost:5432/mandi_db"
 AUTH_DATABASE_URL = os.getenv("AUTH_DATABASE_URL", DEFAULT_AUTH_URL)
 MANDI_DATABASE_URL = os.getenv("MANDI_DATABASE_URL", DEFAULT_MANDI_URL)
 
-# Note: Check connection string scheme for SQLAlchemy
-if AUTH_DATABASE_URL and AUTH_DATABASE_URL.startswith("postgres://"):
-    AUTH_DATABASE_URL = AUTH_DATABASE_URL.replace("postgres://", "postgresql://", 1)
-if MANDI_DATABASE_URL and MANDI_DATABASE_URL.startswith("postgres://"):
-    MANDI_DATABASE_URL = MANDI_DATABASE_URL.replace("postgres://", "postgresql://", 1)
+# Helper to clean and format URLs for pg8000
+def format_db_url(url: str, is_mandi: bool = False) -> str:
+    if not url:
+        return ""
+    # Standardize scheme
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql+pg8000://", 1)
+    elif url.startswith("postgresql://"):
+        url = url.replace("postgresql://", "postgresql+pg8000://", 1)
+    
+    # Ensure +pg8000 dialect for consistency across environments
+    if "postgresql" in url and "+pg8000" not in url:
+        url = url.replace("postgresql://", "postgresql+pg8000://", 1)
+        
+    return url
+
+# Retrieve and clean DB URLs
+AUTH_DATABASE_URL = format_db_url(os.getenv("AUTH_DATABASE_URL", DEFAULT_AUTH_URL))
+MANDI_DATABASE_URL = format_db_url(os.getenv("MANDI_DATABASE_URL", DEFAULT_MANDI_URL))
+
+if not AUTH_DATABASE_URL:
+    raise ValueError("AUTH_DATABASE_URL is not set or empty.")
+if not MANDI_DATABASE_URL:
+    raise ValueError("MANDI_DATABASE_URL is not set or empty.")
 
 # Args for Postgres
 auth_engine_args = {"pool_size": 10, "max_overflow": 20, "pool_pre_ping": True}
 mandi_engine_args = {"pool_size": 20, "max_overflow": 30, "pool_pre_ping": True}
+
+# For Neon + pg8000, we need to handle SSL context manually
+# Neon usually identifies by neon.tech
+if "neon.tech" in MANDI_DATABASE_URL:
+    # Strip query params as pg8000 doesn't support sslmode/channel_binding in URL
+    if "?" in MANDI_DATABASE_URL:
+        MANDI_DATABASE_URL = MANDI_DATABASE_URL.split("?")[0]
+    
+    ssl_context = ssl.create_default_context()
+    ssl_context.check_hostname = False
+    ssl_context.verify_mode = ssl.CERT_NONE
+    mandi_engine_args["connect_args"] = {"ssl_context": ssl_context}
 
 auth_engine = create_engine(AUTH_DATABASE_URL, **auth_engine_args)
 mandi_engine = create_engine(MANDI_DATABASE_URL, **mandi_engine_args)
