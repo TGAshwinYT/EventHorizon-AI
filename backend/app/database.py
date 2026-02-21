@@ -1,13 +1,16 @@
 import os
 import ssl
 import re
-import logging
+import sys
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 from sqlalchemy.engine.url import make_url
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+def debug_print(msg):
+    sys.stderr.write(f"--- DB_DEBUG: {msg} ---\n")
+    sys.stderr.flush()
+
+debug_print("Loading database.py")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -20,32 +23,33 @@ AUTH_DATABASE_URL = os.getenv("AUTH_DATABASE_URL", DEFAULT_AUTH_URL).strip()
 MANDI_DATABASE_URL = os.getenv("MANDI_DATABASE_URL", DEFAULT_MANDI_URL).strip()
 
 # Helper to clean and format URLs
-def format_db_url(url: str) -> str:
+def format_db_url(name, url: str) -> str:
     if not url:
+        debug_print(f"{name} is EMPTY")
         return ""
     
     url = url.strip()
+    original_len = len(url)
     
     # Identify if we should use psycopg2 (requested for Supabase) or pg8000
     is_supabase = "supabase" in url.lower()
     dialect = "+psycopg2" if is_supabase else "+pg8000"
     
+    debug_print(f"Formatting {name}: original_len={original_len}, is_supabase={is_supabase}")
+    
     # Standardize scheme using regex to be robust against variations
-    # This handles postgres://, postgresql://, postgresql+xxx://
+    # This ensures we have postgresql+dialect:// at the start
+    # We replace any postgres://, postgresql://, or postgresql+something://
     url = re.sub(r"^postgres(ql)?(\+\w+)?://", f"postgresql{dialect}://", url, count=1)
     
     return url
 
-def mask_db_url(url: str) -> str:
-    try:
-        u = make_url(url)
-        return f"{u.drivername}://{u.username}:***@{u.host}:{u.port}/{u.database}"
-    except:
-        return "MALFORMED_URL (Could not parse)"
+# Retrieve and clean DB URLs
+AUTH_RAW = os.getenv("AUTH_DATABASE_URL", DEFAULT_AUTH_URL)
+MANDI_RAW = os.getenv("MANDI_DATABASE_URL", DEFAULT_MANDI_URL)
 
-# Clean the URLs
-AUTH_DATABASE_URL = format_db_url(AUTH_DATABASE_URL)
-MANDI_DATABASE_URL = format_db_url(MANDI_DATABASE_URL)
+AUTH_DATABASE_URL = format_db_url("AUTH", AUTH_RAW)
+MANDI_DATABASE_URL = format_db_url("MANDI", MANDI_RAW)
 
 if not AUTH_DATABASE_URL:
     raise ValueError("AUTH_DATABASE_URL is not set or empty.")
@@ -82,16 +86,20 @@ def apply_ssl_if_needed(url: str, engine_args: dict):
 AUTH_DATABASE_URL = apply_ssl_if_needed(AUTH_DATABASE_URL, auth_engine_args)
 MANDI_DATABASE_URL = apply_ssl_if_needed(MANDI_DATABASE_URL, mandi_engine_args)
 
-# Final debug logging before engine creation
-logger.info(f"Initializing Auth DB with URL: {mask_db_url(AUTH_DATABASE_URL)}")
-logger.info(f"Initializing Mandi DB with URL: {mask_db_url(MANDI_DATABASE_URL)}")
+def safe_create_engine(name, url, args):
+    try:
+        # Pre-validate with make_url
+        u = make_url(url)
+        debug_print(f"Validated {name} URL: {u.drivername}://{u.username}:***@{u.host}:{u.port}/{u.database}")
+        return create_engine(url, **args)
+    except Exception as e:
+        debug_print(f"CRITICAL ERROR in {name} engine creation: {str(e)}")
+        # If it fails here, show the first few chars of the URL to see if it's weird
+        debug_print(f"Start of {name} URL: {url[:15]}... (total len: {len(url)})")
+        raise e
 
-try:
-    auth_engine = create_engine(AUTH_DATABASE_URL, **auth_engine_args)
-    mandi_engine = create_engine(MANDI_DATABASE_URL, **mandi_engine_args)
-except Exception as e:
-    logger.error(f"CRITICAL: Failed to create engine. URL was: {mask_db_url(AUTH_DATABASE_URL if 'auth' in str(e).lower() else MANDI_DATABASE_URL)}")
-    raise e
+auth_engine = safe_create_engine("AUTH", AUTH_DATABASE_URL, auth_engine_args)
+mandi_engine = safe_create_engine("MANDI", MANDI_DATABASE_URL, mandi_engine_args)
 
 AuthSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=auth_engine)
 MandiSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=mandi_engine)
