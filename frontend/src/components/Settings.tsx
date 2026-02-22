@@ -28,7 +28,7 @@ interface SettingsProps {
 const Settings = ({ onBack, messages, onDeleteMessage, onClearHistory, currentLanguage, onLanguageChange, username, displayName, avatarUrl, token, onUpdateProfile, onLogout }: SettingsProps) => {
     const [activeTab, setActiveTab] = useState<'profile' | 'history' | 'language' | 'data'>('profile');
     const [newDisplayName, setNewDisplayName] = useState(displayName || '');
-    const [newAvatar, setNewAvatar] = useState(avatarUrl || '');
+    const [newAvatar] = useState(avatarUrl || '');
     const [status, setStatus] = useState('');
 
     // Change Password states
@@ -93,17 +93,6 @@ const Settings = ({ onBack, messages, onDeleteMessage, onClearHistory, currentLa
             alert('Error updating password');
         }
         setTimeout(() => setStatus(''), 2000);
-    };
-
-    const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-        const file = e.target.files?.[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onloadend = () => {
-                setNewAvatar(reader.result as string);
-            };
-            reader.readAsDataURL(file);
-        }
     };
 
     const handleImportData = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -216,10 +205,6 @@ const Settings = ({ onBack, messages, onDeleteMessage, onClearHistory, currentLa
                                                 displayName?.charAt(0).toUpperCase() || username?.charAt(0).toUpperCase()
                                             )}
                                         </div>
-                                        <label className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer rounded-full text-xs font-bold text-white">
-                                            Change
-                                            <input type="file" className="hidden" accept="image/*" onChange={handleImageUpload} />
-                                        </label>
                                     </div>
                                     <div className="flex-1">
                                         <label className="block text-sm text-gray-400 mb-1">Display Name</label>

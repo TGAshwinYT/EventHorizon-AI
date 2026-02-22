@@ -90,7 +90,11 @@ function App() {
                 }
                 if (profileJson.avatar_url) {
                     setAvatarUrl(profileJson.avatar_url);
-                    localStorage.setItem('avatar_url', profileJson.avatar_url);
+                    try {
+                        localStorage.setItem('avatar_url', profileJson.avatar_url);
+                    } catch (e) {
+                        console.warn('Could not save avatar to localStorage (quota exceeded)');
+                    }
                 }
 
                 if (Array.isArray(historyJson)) {
@@ -660,7 +664,11 @@ function App() {
                             }
                             if (updates.avatarUrl !== undefined) {
                                 setAvatarUrl(updates.avatarUrl);
-                                localStorage.setItem('avatar_url', updates.avatarUrl);
+                                try {
+                                    localStorage.setItem('avatar_url', updates.avatarUrl);
+                                } catch (e) {
+                                    console.warn('Could not save avatar to localStorage (quota exceeded)');
+                                }
                             }
                         }}
                         onLogout={handleLogout}

@@ -83,8 +83,9 @@ if not MANDI_DATABASE_URL:
     raise ValueError("MANDI_DATABASE_URL is not set or empty.")
 
 # Args for Postgres
-auth_engine_args = {"pool_size": 10, "max_overflow": 20, "pool_pre_ping": True}
-mandi_engine_args = {"pool_size": 20, "max_overflow": 30, "pool_pre_ping": True}
+# Add connect_timeout to prevent indefinite hangs
+auth_engine_args = {"pool_size": 10, "max_overflow": 20, "pool_pre_ping": True, "connect_args": {"connect_timeout": 10}}
+mandi_engine_args = {"pool_size": 20, "max_overflow": 30, "pool_pre_ping": True, "connect_args": {"connect_timeout": 10}}
 
 # For Remote DBs, we handle SSL context manually ONLY for pg8000
 # Psycopg2 (Supabase) handles SSL via the connection string (?sslmode=require)
@@ -103,10 +104,11 @@ def apply_ssl_if_needed(url: str, engine_args: dict):
         # If using psycopg2 (Supabase)
         if "psycopg2" in url:
             # Render networking can be tricky with Supabase IPv6 on port 5432
-            # Connection pooler on 6543 is generally more stable
-            if ":5432" in url:
-                debug_print("WARNING: Using port 5432 for Supabase on Render can sometimes cause 'Network is unreachable' (IPv6 issue).")
-                debug_print("TIP: Switch to port 6543 (Connection Pooler) in your Render AUTH_DATABASE_URL if this fails.")
+            # Connection pooler on 6543 is generally more stable.
+            # We automatically switch to 6543 if we're on Render (detected by RENDER env var)
+            if ":5432" in url and os.getenv("RENDER"):
+                debug_print("DETECTED RENDER: Switching Supabase port from 5432 to 6543 to avoid IPv6 issues.")
+                url = url.replace(":5432", ":6543")
             
             # Ensure sslmode=require is present
             if "sslmode" not in url:
