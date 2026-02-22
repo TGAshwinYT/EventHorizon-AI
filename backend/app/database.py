@@ -106,9 +106,15 @@ def apply_ssl_if_needed(url: str, engine_args: dict):
             # Render networking can be tricky with Supabase IPv6 on port 5432
             # Connection pooler on 6543 is generally more stable.
             # We automatically switch to 6543 if we're on Render (detected by RENDER env var)
-            if ":5432" in url and os.getenv("RENDER"):
-                debug_print("DETECTED RENDER: Switching Supabase port from 5432 to 6543 to avoid IPv6 issues.")
-                url = url.replace(":5432", ":6543")
+            if os.getenv("RENDER"):
+                if ":5432" in url:
+                    debug_print("DETECTED RENDER: Switching Supabase port from 5432 to 6543.")
+                    url = url.replace(":5432", ":6543")
+                elif ":" not in url.split("@")[-1].split("/")[0]:
+                    # No port specified, add :6543 to the hostname
+                    debug_print("DETECTED RENDER: Adding port 6543 to Supabase URL.")
+                    host_part = url.split("@")[-1].split("/")[0]
+                    url = url.replace(host_part, f"{host_part}:6543")
             
             # Ensure sslmode=require is present
             if "sslmode" not in url:
