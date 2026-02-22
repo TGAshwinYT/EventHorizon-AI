@@ -93,7 +93,7 @@ function App() {
                     try {
                         localStorage.setItem('avatar_url', profileJson.avatar_url);
                     } catch (e) {
-                        console.warn('Could not save avatar to localStorage (quota exceeded)');
+                        // Silently handle quota exceeded for large avatar images
                     }
                 }
 
@@ -667,7 +667,7 @@ function App() {
                                 try {
                                     localStorage.setItem('avatar_url', updates.avatarUrl);
                                 } catch (e) {
-                                    console.warn('Could not save avatar to localStorage (quota exceeded)');
+                                    // Silently handle quota exceeded
                                 }
                             }
                         }}
