@@ -1,12 +1,17 @@
 # Python dependencies
 __pycache__/
 *.pyc
-venv/
-backend/venv_unix_backup/
-.venv/
-
 # Environment variables
+.env
 **/.env
+.env.*
+!.env.example
+
+# Virtual environments
+venv/
+.venv/
+backend/venv_win/
+backend/venv_unix_backup/
 
 # Node.js dependencies
 node_modules/
