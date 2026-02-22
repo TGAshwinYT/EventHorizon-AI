@@ -83,9 +83,10 @@ if not MANDI_DATABASE_URL:
     raise ValueError("MANDI_DATABASE_URL is not set or empty.")
 
 # Args for Postgres
-# Add connect_timeout to prevent indefinite hangs
-auth_engine_args = {"pool_size": 10, "max_overflow": 20, "pool_pre_ping": True, "connect_args": {"connect_timeout": 10}}
-mandi_engine_args = {"pool_size": 20, "max_overflow": 30, "pool_pre_ping": True, "connect_args": {"connect_timeout": 10}}
+# Add connect_timeout to prevent indefinite hangs. 
+# Increased to 30s to handle slow pooler handshakes.
+auth_engine_args = {"pool_size": 10, "max_overflow": 20, "pool_pre_ping": True, "connect_args": {"connect_timeout": 30}}
+mandi_engine_args = {"pool_size": 20, "max_overflow": 30, "pool_pre_ping": True, "connect_args": {"connect_timeout": 30}}
 
 # For Remote DBs, we handle SSL context manually ONLY for pg8000
 # Psycopg2 (Supabase) handles SSL via the connection string (?sslmode=require)
@@ -108,11 +109,11 @@ def apply_ssl_if_needed(url: str, engine_args: dict):
             # We automatically switch to 6543 if we're on Render (detected by RENDER env var)
             if os.getenv("RENDER"):
                 if ":5432" in url:
-                    debug_print("DETECTED RENDER: Switching Supabase port from 5432 to 6543.")
+                    debug_print("DETECTED RENDER: Switching Supabase port from 5432 to 6543 for pooler stability.")
                     url = url.replace(":5432", ":6543")
                 elif ":" not in url.split("@")[-1].split("/")[0]:
                     # No port specified, add :6543 to the hostname
-                    debug_print("DETECTED RENDER: Adding port 6543 to Supabase URL.")
+                    debug_print("DETECTED RENDER: No port specified. Defaulting Supabase to 6543.")
                     host_part = url.split("@")[-1].split("/")[0]
                     url = url.replace(host_part, f"{host_part}:6543")
             
