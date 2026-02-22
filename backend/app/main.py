@@ -23,6 +23,22 @@ from app.database import auth_engine, mandi_engine, AuthBase, MandiBase
 AUDIO_DIR = os.path.join(os.getcwd(), "audio_output")
 os.makedirs(AUDIO_DIR, exist_ok=True)
 
+# Initialize Databases with timeout/error handling
+# We use a separate thread/task for this to avoid blocking the main event loop
+def init_db():
+    from app.database import auth_engine, mandi_engine, AuthBase, MandiBase, debug_print
+    try:
+        debug_print("Attempting to create tables for AUTH database...")
+        AuthBase.metadata.create_all(bind=auth_engine)
+        debug_print("AUTH database tables initialized.")
+        
+        debug_print("Attempting to create tables for MANDI database...")
+        MandiBase.metadata.create_all(bind=mandi_engine)
+        debug_print("MANDI database tables initialized.")
+    except Exception as e:
+        debug_print(f"CRITICAL: Database initialization failed: {e}")
+        # We don't raise here so the API can still start (for health checks/debugging)
+
 app = FastAPI(title="EventHorizon AI Backend")
 
 @app.on_event("startup")
@@ -31,26 +47,8 @@ async def startup_event():
     from app.services.scheduler import start_scheduler
     start_scheduler()
     
-    # Initialize Databases with timeout/error handling
-    # We use a separate thread/task for this to avoid blocking the main event loop
-    def init_db():
-        from app.database import auth_engine, mandi_engine, AuthBase, MandiBase, debug_print
-        try:
-            debug_print("Attempting to create tables for AUTH database...")
-            AuthBase.metadata.create_all(bind=auth_engine)
-            debug_print("AUTH database tables initialized.")
-            
-            debug_print("Attempting to create tables for MANDI database...")
-            MandiBase.metadata.create_all(bind=mandi_engine)
-            debug_print("MANDI database tables initialized.")
-        except Exception as e:
-            debug_print(f"CRITICAL: Database initialization failed: {e}")
-            # We don't raise here so the API can still start (for health checks/debugging)
-
-    # Run in thread pool to avoid blocking startup if DB is slow/hanging
-    import concurrent.futures
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        executor.submit(init_db)
+    # Run in the background to avoid blocking startup if DB is slow/hanging
+    asyncio.create_task(asyncio.to_thread(init_db))
 
 app.add_middleware(
     CORSMiddleware,
