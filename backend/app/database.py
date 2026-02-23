@@ -137,12 +137,14 @@ def safe_create_engine(name, url, args):
     try:
         # Pre-validate with make_url
         u = make_url(url)
-        debug_print(f"Validated {name} URL: {u.drivername}://{u.username}:***@{u.host}:{u.port}/{u.database}")
-        return create_engine(url, **args)
+        debug_print(f"Engine {name} - Driver: {u.drivername}, Host: {u.host}, Port: {u.port}, DB: {u.database}, User: {u.username}")
+        engine = create_engine(url, **args)
+        debug_print(f"Engine {name} created successfully.")
+        return engine
     except Exception as e:
         debug_print(f"CRITICAL ERROR in {name} engine creation: {str(e)}")
-        # If it fails here, show the first few chars of the URL to see if it's weird
-        debug_print(f"Start of {name} URL: {url[:15]}... (total len: {len(url)})")
+        debug_print(f"RENDER env: {os.getenv('RENDER')}")
+        debug_print(f"Suspected URL start: {url[:30]}...")
         raise e
 
 auth_engine = safe_create_engine("AUTH", AUTH_DATABASE_URL, auth_engine_args)
