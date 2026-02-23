@@ -570,7 +570,10 @@ function App() {
 
             <main className="flex-1 flex flex-col relative">
                 <header className="absolute top-6 w-full px-8 flex justify-between items-center z-10">
-                    <div className="text-xl font-semibold text-white/50 pointer-events-none">EventHorizon <span className="text-gray-500 font-normal">AI</span></div>
+                    <div className="flex items-center gap-3 pointer-events-none">
+                        <img src="/logo.png" alt="Logo" className="w-10 h-10 rounded-full" />
+                        <div className="text-xl font-semibold text-white/50">EventHorizon <span className="text-gray-500 font-normal">AI</span></div>
+                    </div>
                     <LanguageSelector currentLanguage={language} onLanguageChange={setLanguage} />
                 </header>
 
@@ -587,8 +590,8 @@ function App() {
                         <div className="flex-1 overflow-y-auto px-4 pb-24 custom-scrollbar scroll-smooth">
                             {messages.length === 0 ? (
                                 <div className="flex flex-col items-center justify-center h-full text-center opacity-60">
-                                    <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mb-6">
-                                        <AlertCircle className="w-8 h-8 text-purple-400 rotate-180" />
+                                    <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mb-6 overflow-hidden border border-white/10 shadow-lg">
+                                        <img src="/logo.png" alt="EventHorizon AI" className="w-full h-full object-cover" />
                                     </div>
                                     <h2 className="text-2xl font-bold mb-2">EventHorizon AI</h2>
                                     <p className="text-gray-400 max-w-md mx-auto">

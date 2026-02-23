@@ -73,7 +73,10 @@ const Auth = ({ onLogin }: AuthProps) => {
 
     return (
         <div className="flex flex-col items-center justify-center p-8 bg-black/40 backdrop-blur-md rounded-2xl border border-white/10 w-full max-w-md mx-auto shadow-2xl">
-            <h2 className="text-3xl font-bold text-white mb-6 bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500">
+            <div className="mb-6 flex justify-center">
+                <img src="/logo.png" alt="EventHorizon AI Logo" className="w-20 h-20 rounded-full shadow-[0_0_20px_rgba(59,130,246,0.5)] border-2 border-white/10" />
+            </div>
+            <h2 className="text-3xl font-bold text-white mb-6 bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500 text-center">
                 {isReset ? 'Reset Password' : (isLogin ? 'Welcome Back' : 'Join EventHorizon')}
             </h2>
 
