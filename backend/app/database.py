@@ -102,29 +102,31 @@ def apply_ssl_if_needed(url: str, engine_args: dict):
             engine_args["connect_args"] = {"ssl_context": ssl_context}
             return cleaned_url
         
-        # If using psycopg2 (Supabase/Postgres)
+        # If using psycopg2 (Supabase)
         if "psycopg2" in url:
-            try:
-                u = make_url(url)
-                # Render networking: switch to port 6543 for pooler stability
-                if os.getenv("RENDER"):
-                    if u.port == 5432 or u.port is None:
-                        debug_print(f"DETECTED RENDER: Switching {u.host} port to 6543 for pooler stability.")
-                        # Rebuild URL with new port
-                        # We use the string manipulation to preserve the exact username/password formatting
-                        if f":{u.port}" in url:
-                            url = url.replace(f":{u.port}", ":6543")
-                        else:
-                            # Add port after host
-                            host_part = u.host
-                            url = url.replace(host_part, f"{host_part}:6543")
-                
-                # Ensure sslmode=require is present
-                if "sslmode" not in url:
-                    separator = "&" if "?" in url else "?"
-                    url = f"{url}{separator}sslmode=require"
-            except Exception as e:
-                debug_print(f"Error in apply_ssl_if_needed for psycopg2: {e}")
+            # Render networking can be tricky with Supabase IPv6 on port 5432
+            # Connection pooler on 6543 is generally more stable.
+            # We automatically switch to 6543 if we're on Render (detected by RENDER env var)
+            if os.getenv("RENDER"):
+                if ":5432" in url:
+                    debug_print("DETECTED RENDER: Switching Supabase port from 5432 to 6543 for pooler stability.")
+                    url = url.replace(":5432", ":6543")
+                elif ":" not in url.split("@")[-1].split("/")[0]:
+                    # No port specified, add :6543 to the hostname
+                    debug_print("DETECTED RENDER: No port specified. Defaulting Supabase to 6543.")
+                    host_part = url.split("@")[-1].split("/")[0]
+                    url = url.replace(host_part, f"{host_part}:6543")
+            
+            # Ensure sslmode=require is present
+            if "sslmode" not in url:
+                separator = "&" if "?" in url else "?"
+                url = f"{url}{separator}sslmode=require"
+            
+            # If using Supabase Connection Pooler (6543), we must ensure prepared statements are handled.
+            # Psycopg2 doesn't use server-side prepared statements by default.
+            # The 'prepared_statement_cache_size' option is invalid in the DSN for psycopg2.
+            if ":6543" in url:
+                pass
                 
     return url
 
