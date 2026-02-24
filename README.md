@@ -48,3 +48,6 @@ The frontend will be available at `http://localhost:5173`.
 ## Architecture
 - **VoiceOrb**: Central UI element for voice interaction.
 - **Mock Mode**: Currently, the backend returns mock data for chat and market prices to avoid AWS costs during development.
+
+## DEPLOYED LINK
+- **EventHorizon_AI**: https://eventhorizon-ai.vercel.app/
