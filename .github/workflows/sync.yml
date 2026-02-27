@@ -22,18 +22,19 @@ jobs:
           # 1. Go inside your backend folder
           cd backend
           
-          # 2. Set up the temporary Git identity
+          # 2. THE NUCLEAR FIX: Physically delete the MP3s from the temporary runner
+          rm -rf app/static/audio/*.mp3
+          
+          # 3. Destroy the parent Git folder so it stops confusing the system
+          rm -rf ../.git
+          
+          # 4. Set up a perfectly clean Git identity
           git init
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           
-          # 3. THE FIX: Tell Git to completely ignore your generated audio files!
-          echo "app/static/audio/*.mp3" >> .gitignore
-          
-          # 4. Package the folder
+          # 5. Package and Force Push
           git checkout -b main
           git add .
-          git commit -m "Sync backend to Hugging Face (Excluding Audio)"
-          
-          # 5. Push to your Space
+          git commit -m "Sync to Hugging Face (Audio Removed)"
           git push --force https://TGAshwinYT:$HF_TOKEN@huggingface.co/spaces/TGAshwinYT/EventHorizon-Backend main
