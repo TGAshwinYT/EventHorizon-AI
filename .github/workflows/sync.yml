@@ -1,0 +1,32 @@
+name: Sync to Hugging Face Hub
+
+# This tells GitHub to run this script every time you push to the 'main' branch
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  sync-to-hub:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0 
+          lfs: true 
+
+      - name: Push backend folder to Hugging Face
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          # 1. Go inside your backend folder so we ignore the frontend
+          cd backend
+          
+          # 2. Package just this folder into a temporary Git payload
+          git init
+          git checkout -b main
+          git add .
+          git commit -m "Sync backend to Hugging Face"
+          
+          # 3. Push to your exact Space using your username and token
+          git push --force https://TGAshwinYT:$HF_TOKEN@huggingface.co/spaces/TGAshwinYT/EventHorizon-Backend main
