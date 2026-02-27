@@ -19,14 +19,18 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          # 1. Go inside your backend folder so we ignore the frontend
+          # 1. Go inside your backend folder
           cd backend
           
-          # 2. Package just this folder into a temporary Git payload
+          # 2. Set up the temporary Git identity (THE FIX!)
           git init
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          
+          # 3. Package the folder
           git checkout -b main
           git add .
           git commit -m "Sync backend to Hugging Face"
           
-          # 3. Push to your exact Space using your username and token
+          # 4. Push to your Space
           git push --force https://TGAshwinYT:$HF_TOKEN@huggingface.co/spaces/TGAshwinYT/EventHorizon-Backend main
