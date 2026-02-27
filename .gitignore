@@ -24,3 +24,6 @@ dist/
 # Local database
 backend/app.db
 *.db
+
+# Tool Binaries
+Tools/
