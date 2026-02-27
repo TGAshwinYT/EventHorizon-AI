@@ -1,0 +1,38 @@
+name: Keep Hugging Face Space Awake
+
+# This tells GitHub to run this script automatically on a timer
+on:
+  schedule:
+    # Runs automatically every 12 hours
+    - cron: '0 */12 * * *'
+  workflow_dispatch: # This adds a manual "Run" button on GitHub
+
+jobs:
+  ping-space:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Install Headless Browser
+        run: npm install puppeteer
+
+      - name: Visit the App
+        run: |
+          node -e "
+          const puppeteer = require('puppeteer');
+          (async () => {
+            console.log('Starting hidden browser...');
+            const browser = await puppeteer.launch({ headless: 'new' });
+            const page = await browser.newPage();
+            
+            console.log('Navigating to Hugging Face...');
+            // I have already added your exact Space URL here!
+            await page.goto('https://huggingface.co/spaces/TGAshwinYT/EventHorizon-Backend', { waitUntil: 'networkidle2' });
+            
+            console.log('Successfully loaded the space! The server is awake.');
+            await browser.close();
+          })();
+          "
