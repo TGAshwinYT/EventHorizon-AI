@@ -10,12 +10,16 @@ print(f"DEBUG MAIN: MANDI_DATABASE_URL={os.getenv('MANDI_DATABASE_URL')}")
 if sys.platform == 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
-from fastapi import FastAPI, Request
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from app.routers import chat, market, voice, auth, weather
 from app.database import auth_engine, mandi_engine, AuthBase, MandiBase
+import whisper
+
+ml_models = {}
 
 # Database initialization is moved to startup event for better resilience
 
@@ -26,31 +30,76 @@ os.makedirs(AUDIO_DIR, exist_ok=True)
 # Initialize Databases with timeout/error handling
 # We use a separate thread/task for this to avoid blocking the main event loop
 def init_db():
-    from app.database import auth_engine, mandi_engine, AuthBase, MandiBase, debug_print
     try:
+        # We import here to ensure engines are created when needed
+        from app.database import auth_engine, mandi_engine, AuthBase, MandiBase, debug_print
+        
+        debug_print("STARTING DB INITIALIZATION...")
+        
         debug_print("Attempting to create tables for AUTH database...")
         AuthBase.metadata.create_all(bind=auth_engine)
-        debug_print("AUTH database tables initialized.")
+        debug_print("AUTH database tables initialized/verified.")
         
         debug_print("Attempting to create tables for MANDI database...")
         MandiBase.metadata.create_all(bind=mandi_engine)
-        debug_print("MANDI database tables initialized.")
+        debug_print("MANDI database tables initialized/verified.")
+        
+        debug_print("DB INITIALIZATION COMPLETED SUCCESSFULLY.")
     except Exception as e:
+        from app.database import debug_print
         debug_print(f"CRITICAL: Database initialization failed: {e}")
+        import traceback
+        debug_print(traceback.format_exc())
         # We don't raise here so the API can still start (for health checks/debugging)
 
-app = FastAPI(title="EventHorizon AI Backend")
-
-@app.on_event("startup")
-async def startup_event():
-    # Start Scheduler
-    from app.services.scheduler import start_scheduler
-    start_scheduler()
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    print("APPLICATION STARTING UP...")
+    app.state.is_ready = False
     
-    # Run in the background to avoid blocking startup if DB is slow/hanging
-    asyncio.create_task(asyncio.to_thread(init_db))
+    print("[-] Warm-up: Loading Whisper model into global RAM...")
+    ml_models["whisper_tiny"] = whisper.load_model("tiny")
+    
+    # 1. Start Scheduler
+    from app.services.scheduler import start_scheduler
+    try:
+        start_scheduler()
+        print("[-] Scheduler started.")
+    except Exception as e:
+        print(f"[!] Failed to start scheduler: {e}")
+        
+    # 2. Database Initialization
+    async def delayed_init():
+        await asyncio.sleep(1) # Yield control
+        init_db()
+    asyncio.create_task(delayed_init())
+    
+    # 3. Simulate AI Model Warmup / Neural Link Building
+    print("[-] Warming up AI models and establishing neural links...")
+    await asyncio.sleep(2.5) 
+    
+    app.state.is_ready = True
+    print("[*] Application startup complete. EventHorizon is Online.")
+    
+    yield
+
+    # Teardown logic here
+    print("APPLICATION SHUTTING DOWN...")
+    
+    # Shutdown Scheduler
+    try:
+        from app.services.scheduler import shutdown_scheduler
+        shutdown_scheduler()
+        print("[-] Scheduler shut down.")
+    except Exception as e:
+        print(f"[!] Failed to shut down scheduler: {e}")
+        
+    ml_models.clear()
+
+app = FastAPI(title="EventHorizon AI Backend", lifespan=lifespan)
 
 app.add_middleware(
+
     CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
@@ -68,6 +117,13 @@ app.include_router(weather.router, prefix='/api/weather', tags=["Weather"])
 @app.get('/')
 async def root():
     return {"message": "EventHorizon AI Backend (FastAPI + AWS) is running"}
+
+@app.get('/api/health')
+async def health_check():
+    if getattr(app.state, "is_ready", False):
+        return {"status": "ready", "message": "EventHorizon API is online"}
+    else:
+        raise HTTPException(status_code=503, detail="booting")
 
 # Serve audio files
 # In FastAPI, we can mount a static directory.

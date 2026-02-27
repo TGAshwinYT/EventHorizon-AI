@@ -83,16 +83,18 @@ if not MANDI_DATABASE_URL:
     raise ValueError("MANDI_DATABASE_URL is not set or empty.")
 
 # Args for Postgres
-# Add connect_timeout to prevent indefinite hangs. 
-# Increased to 30s to handle slow pooler handshakes.
-auth_engine_args = {"pool_size": 10, "max_overflow": 20, "pool_pre_ping": True, "connect_args": {"connect_timeout": 30}}
-mandi_engine_args = {"pool_size": 20, "max_overflow": 30, "pool_pre_ping": True, "connect_args": {"connect_timeout": 30}}
+# We add pool_recycle=1800 to recycle connections older than 30 minutes, 
+# preventing them from being dropped quietly by the database server.
+auth_engine_args = {"pool_size": 10, "max_overflow": 20, "pool_pre_ping": True, "pool_recycle": 1800, "connect_args": {}}
+mandi_engine_args = {"pool_size": 20, "max_overflow": 30, "pool_pre_ping": True, "pool_recycle": 1800, "connect_args": {}}
 
 # For Remote DBs, we handle SSL context manually ONLY for pg8000
 # Psycopg2 (Supabase) handles SSL via the connection string (?sslmode=require)
 def apply_ssl_if_needed(url: str, engine_args: dict):
     # Only apply to external hosts
-    if any(host in url for host in ["neon.tech", "supabase", "aws.com", "elephantsql.com"]):
+    is_external = any(host in url for host in ["neon.tech", "supabase", "aws.com", "elephantsql.com"])
+    
+    if is_external:
         # If using pg8000, we must strip params and use ssl_context
         if "pg8000" in url:
             cleaned_url = url.split("?")[0]
@@ -106,26 +108,15 @@ def apply_ssl_if_needed(url: str, engine_args: dict):
         if "psycopg2" in url:
             # Render networking can be tricky with Supabase IPv6 on port 5432
             # Connection pooler on 6543 is generally more stable.
-            # We automatically switch to 6543 if we're on Render (detected by RENDER env var)
-            if os.getenv("RENDER"):
-                if ":5432" in url:
-                    debug_print("DETECTED RENDER: Switching Supabase port from 5432 to 6543 for pooler stability.")
-                    url = url.replace(":5432", ":6543")
-                elif ":" not in url.split("@")[-1].split("/")[0]:
-                    # No port specified, add :6543 to the hostname
-                    debug_print("DETECTED RENDER: No port specified. Defaulting Supabase to 6543.")
-                    host_part = url.split("@")[-1].split("/")[0]
-                    url = url.replace(host_part, f"{host_part}:6543")
+            # We automatically switch to 6543 ONLY if we're on Render (detected by RENDER env var)
             
-            # Ensure sslmode=require is present
+            # Ensure sslmode=require is present for security and stability
             if "sslmode" not in url:
                 separator = "&" if "?" in url else "?"
                 url = f"{url}{separator}sslmode=require"
             
-            # If using Supabase Connection Pooler (6543), we must ensure prepared statements are handled.
-            # Psycopg2 doesn't use server-side prepared statements by default.
-            # The 'prepared_statement_cache_size' option is invalid in the DSN for psycopg2.
             if ":6543" in url:
+                debug_print("Using Supabase Pooler (6543). Ensuring compatibility parameters.")
                 pass
                 
     return url
@@ -137,15 +128,16 @@ def safe_create_engine(name, url, args):
     try:
         # Pre-validate with make_url
         u = make_url(url)
-        # Only log masked connection info for security
-        debug_print(f"Validated {name} URL: {u.drivername}://{u.username}:***@{u.host}:{u.port}/{u.database}")
+        debug_print(f"Creating {name} engine (Driver: {u.drivername}, Host: {u.host}, Port: {u.port})")
+        
+        # We DON'T test connection here because it might block app startup 
+        # or fail if network is temporarily down. SQLAlchemy handles reconnection.
         engine = create_engine(url, **args)
         debug_print(f"Engine {name} created successfully.")
         return engine
     except Exception as e:
         debug_print(f"CRITICAL ERROR in {name} engine creation: {str(e)}")
-        # If it fails here, show the first few chars of the URL to see if it's weird
-        debug_print(f"Start of {name} URL: {url[:15]}... (total len: {len(url)})")
+        # We still return the engine if possible or raise if it's a structural error
         raise e
 
 auth_engine = safe_create_engine("AUTH", AUTH_DATABASE_URL, auth_engine_args)

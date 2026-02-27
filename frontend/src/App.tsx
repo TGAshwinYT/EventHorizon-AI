@@ -23,10 +23,10 @@ interface ProfileUpdate {
 }
 
 function App() {
-    const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
-    const [username, setUsername] = useState<string | null>(localStorage.getItem('username'));
-    const [displayName, setDisplayName] = useState<string | null>(localStorage.getItem('display_name'));
-    const [avatarUrl, setAvatarUrl] = useState<string | null>(localStorage.getItem('avatar_url'));
+    const [token, setToken] = useState<string | null>(sessionStorage.getItem('token'));
+    const [username, setUsername] = useState<string | null>(sessionStorage.getItem('username'));
+    const [displayName, setDisplayName] = useState<string | null>(sessionStorage.getItem('display_name'));
+    const [avatarUrl, setAvatarUrl] = useState<string | null>(sessionStorage.getItem('avatar_url'));
 
     const [voiceStatus, setVoiceStatus] = useState<'idle' | 'listening' | 'thinking' | 'speaking'>('idle');
 
@@ -41,72 +41,94 @@ function App() {
 
     const [courses, setCourses] = useState<any[]>([]);
     const [messages, setMessages] = useState<Message[]>([]);
+    const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(true);
 
     const mediaRecorderRef = useRef<MediaRecorder | null>(null);
     const audioChunksRef = useRef<Blob[]>([]);
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
 
-    // Check auth on mount
+    // Check auth on mount and handle migration/cleanup
     useEffect(() => {
-        const storedToken = localStorage.getItem('token');
-        const storedUser = localStorage.getItem('username');
-        const storedDisplayName = localStorage.getItem('display_name');
-        const storedAvatarUrl = localStorage.getItem('avatar_url');
+        const storedToken = sessionStorage.getItem('token');
+        const storedUser = sessionStorage.getItem('username');
+        const storedDisplayName = sessionStorage.getItem('display_name');
+        const storedAvatarUrl = sessionStorage.getItem('avatar_url');
+
         if (storedToken) {
             setToken(storedToken);
             setUsername(storedUser);
             setDisplayName(storedDisplayName);
             setAvatarUrl(storedAvatarUrl);
         }
+
+        // Migration/Cleanup: Remove legacy auth data from localStorage
+        const legacyItems = ['token', 'username', 'display_name', 'avatar_url'];
+        legacyItems.forEach(item => {
+            if (localStorage.getItem(item)) {
+                console.log(`Cleaning up legacy ${item} from localStorage`);
+                localStorage.removeItem(item);
+            }
+        });
     }, []);
 
     useEffect(() => {
         if (!token) return;
 
-        const fetchData = async () => {
-            try {
-                const headers = { 'Authorization': `Bearer ${token}` };
-                const [coursesRes, historyRes, profileRes] = await Promise.all([
-                    fetch(`/api/market/courses?language=${language}`),
-                    fetch('/api/chat/history', { headers }),
-                    fetch('/api/auth/profile', { headers })
-                ]);
+        const fetchData = () => {
+            const headers = { 'Authorization': `Bearer ${token}` };
 
-                if (historyRes.status === 401 || profileRes.status === 401) {
-                    console.log("Token expired or invalid. Logging out.");
-                    handleLogout();
-                    return;
-                }
+            setIsLoadingHistory(true);
 
-                const coursesJson = await coursesRes.json();
-                const historyJson = await historyRes.json();
-                const profileJson = await profileRes.json();
-
-                setCourses(coursesJson);
-                if (profileJson.display_name) {
-                    setDisplayName(profileJson.display_name);
-                    localStorage.setItem('display_name', profileJson.display_name);
-                }
-                if (profileJson.avatar_url) {
-                    setAvatarUrl(profileJson.avatar_url);
-                    try {
-                        localStorage.setItem('avatar_url', profileJson.avatar_url);
-                    } catch (e) {
-                        // Silently handle quota exceeded for large avatar images
+            // Fetch History asynchronously
+            fetch('/api/chat/history', { headers })
+                .then(res => {
+                    if (res.status === 401) throw new Error("Unauthorized");
+                    return res.json();
+                })
+                .then(historyJson => {
+                    if (Array.isArray(historyJson)) {
+                        const parsedHistory = historyJson.map((msg: any) => ({
+                            ...msg,
+                            timestamp: new Date(msg.timestamp)
+                        }));
+                        setMessages(parsedHistory);
                     }
-                }
+                })
+                .catch(err => {
+                    if (err.message === "Unauthorized") {
+                        console.log("Token expired. Logging out.");
+                        handleLogout();
+                    } else {
+                        console.error("Failed to fetch history:", err);
+                    }
+                })
+                .finally(() => setIsLoadingHistory(false));
 
-                if (Array.isArray(historyJson)) {
-                    const parsedHistory = historyJson.map((msg: any) => ({
-                        ...msg,
-                        timestamp: new Date(msg.timestamp)
-                    }));
-                    setMessages(parsedHistory);
-                }
-            } catch (err) {
-                console.error("Failed to fetch data:", err);
-            }
+            // Fetch Profile asynchronously
+            fetch('/api/auth/profile', { headers })
+                .then(res => res.json())
+                .then(profileJson => {
+                    if (profileJson.display_name) {
+                        setDisplayName(profileJson.display_name);
+                        sessionStorage.setItem('display_name', profileJson.display_name);
+                    }
+                    if (profileJson.avatar_url) {
+                        setAvatarUrl(profileJson.avatar_url);
+                        try {
+                            sessionStorage.setItem('avatar_url', profileJson.avatar_url);
+                        } catch (e) {
+                            // Silently handle quota exceeded for large avatar images
+                        }
+                    }
+                })
+                .catch(err => console.error("Failed to fetch profile:", err));
+
+            // Fetch Courses asynchronously
+            fetch(`/api/market/courses?language=${language}`)
+                .then(res => res.json())
+                .then(coursesJson => setCourses(coursesJson))
+                .catch(err => console.error("Failed to fetch courses:", err));
         };
         fetchData();
 
@@ -120,17 +142,17 @@ function App() {
     }, [token, language]);
 
     const handleLogin = (newToken: string, newUsername: string) => {
-        localStorage.setItem('token', newToken);
-        localStorage.setItem('username', newUsername);
+        sessionStorage.setItem('token', newToken);
+        sessionStorage.setItem('username', newUsername);
         setToken(newToken);
         setUsername(newUsername);
     };
 
     const handleLogout = () => {
-        localStorage.removeItem('token');
-        localStorage.removeItem('username');
-        localStorage.removeItem('display_name');
-        localStorage.removeItem('avatar_url');
+        sessionStorage.removeItem('token');
+        sessionStorage.removeItem('username');
+        sessionStorage.removeItem('display_name');
+        sessionStorage.removeItem('avatar_url');
         setToken(null);
         setUsername(null);
         setDisplayName(null);
@@ -378,7 +400,7 @@ function App() {
         });
     };
 
-    const fetchAndPlayTTS = async (text: string) => {
+    const fetchAndPlayTTS = async (text: string, overrideLanguage?: string) => {
         setVoiceStatus('thinking');
 
         if (!abortControllerRef.current) {
@@ -386,13 +408,15 @@ function App() {
         }
         const signal = abortControllerRef.current.signal;
 
+        const ttsLang = overrideLanguage || language;
+
         try {
             const ttsResponse = await fetch('/api/chat/tts', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
                 body: JSON.stringify({
                     text: text,
-                    language: language
+                    language: ttsLang
                 }),
                 signal: signal
             });
@@ -518,14 +542,15 @@ function App() {
             setMessages(prev => [...prev, userMsg, aiMsg]);
 
             if (data.detected_language && data.detected_language !== language) {
-                setLanguage(data.detected_language);
+                // UI language shouldn't automatically switch just because the user spoke in another language.
+                // setLanguage(data.detected_language);
             }
 
             // Now, fetch audio separately using the helper
             if (audioBlob || text) {
                 // Split response to get summary for TTS
                 const summary = data.response_text.split('|||')[0].trim();
-                await fetchAndPlayTTS(summary);
+                await fetchAndPlayTTS(summary, data.detected_language);
             } else {
                 setVoiceStatus('idle');
             }
@@ -563,9 +588,6 @@ function App() {
                     skills: currentUI.skills,
                     settings: currentUI.settings
                 }}
-                username={username}
-                displayName={displayName}
-                avatarUrl={avatarUrl}
             />
 
             <main className="flex-1 flex flex-col relative">
@@ -588,7 +610,12 @@ function App() {
                     <div className="flex flex-col h-full w-full relative text-base md:text-lg">
                         {/* Chat Area - Full Height */}
                         <div className="flex-1 overflow-y-auto px-4 pb-24 custom-scrollbar scroll-smooth">
-                            {messages.length === 0 ? (
+                            {isLoadingHistory ? (
+                                <div className="flex flex-col items-center justify-center h-full text-center opacity-80">
+                                    <div className="w-12 h-12 rounded-full border-t-2 border-r-2 border-blue-500 animate-spin mb-4" />
+                                    <h2 className="text-xl font-medium text-slate-300 animate-pulse">Loading history...</h2>
+                                </div>
+                            ) : messages.length === 0 ? (
                                 <div className="flex flex-col items-center justify-center h-full text-center opacity-60">
                                     <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mb-6 overflow-hidden border border-white/10 shadow-lg">
                                         <img src="/logo.png" alt="EventHorizon AI" className="w-full h-full object-cover" />
@@ -663,12 +690,12 @@ function App() {
                         onUpdateProfile={async (updates: ProfileUpdate) => {
                             if (updates.displayName !== undefined) {
                                 setDisplayName(updates.displayName);
-                                localStorage.setItem('display_name', updates.displayName);
+                                sessionStorage.setItem('display_name', updates.displayName);
                             }
                             if (updates.avatarUrl !== undefined) {
                                 setAvatarUrl(updates.avatarUrl);
                                 try {
-                                    localStorage.setItem('avatar_url', updates.avatarUrl);
+                                    sessionStorage.setItem('avatar_url', updates.avatarUrl);
                                 } catch (e) {
                                     // Silently handle quota exceeded
                                 }

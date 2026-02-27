@@ -197,15 +197,7 @@ const Settings = ({ onBack, messages, onDeleteMessage, onClearHistory, currentLa
                             </h3>
                             <div className="bg-white/5 p-6 rounded-2xl border border-white/10">
                                 <div className="flex items-center gap-6 mb-8">
-                                    <div className="relative group">
-                                        <div className="w-24 h-24 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center text-3xl font-bold border-4 border-black/50 shadow-xl overflow-hidden">
-                                            {newAvatar ? (
-                                                <img src={newAvatar} alt="Avatar" className="w-full h-full object-cover" />
-                                            ) : (
-                                                displayName?.charAt(0).toUpperCase() || username?.charAt(0).toUpperCase()
-                                            )}
-                                        </div>
-                                    </div>
+
                                     <div className="flex-1">
                                         <label className="block text-sm text-gray-400 mb-1">Display Name</label>
                                         <input
@@ -390,14 +382,15 @@ const Settings = ({ onBack, messages, onDeleteMessage, onClearHistory, currentLa
                                     onClick={async () => {
                                         if (window.confirm('Are you ABSOLUTELY SURE? This will permanently delete your account and all data. This action cannot be undone.')) {
                                             try {
-                                                const token = localStorage.getItem('token');
+                                                const token = sessionStorage.getItem('token');
                                                 const res = await fetch('/api/auth/profile', {
                                                     method: 'DELETE',
                                                     headers: { 'Authorization': `Bearer ${token}` }
                                                 });
                                                 if (res.ok) {
                                                     alert('Account deleted successfully.');
-                                                    localStorage.clear(); // Ensure absolute data obliteration
+                                                    sessionStorage.clear();
+                                                    localStorage.clear(); // Absolute data obliteration
                                                     onLogout();
                                                 } else {
                                                     alert('Failed to delete account.');

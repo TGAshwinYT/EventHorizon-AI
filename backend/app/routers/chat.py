@@ -2,6 +2,10 @@ from fastapi import APIRouter, Request, HTTPException, Form, File, UploadFile, D
 from fastapi.responses import JSONResponse
 import base64
 import os
+import io
+import tempfile
+from groq import Groq
+import whisper
 from typing import Optional, List, Dict, Any, Union
 from pydantic import BaseModel
 from app.services.gemini_service import GeminiService
@@ -17,6 +21,64 @@ gemini_service = GeminiService()
 audio_service = AudioService()
 
 router = APIRouter()
+
+def get_local_whisper_model():
+    """Retrieve the pre-loaded local Whisper tiny model from global RAM context in O(1) time."""
+    from app.main import ml_models
+    return ml_models.get("whisper_tiny")
+
+async def transcribe_audio_with_fallback(audio: UploadFile) -> tuple[str, str]:
+    """
+    Transcribe audio with graceful degradation:
+    Primary Route: Groq API (whisper-large-v3-turbo)
+    Fallback Route: Local Whisper (tiny model)
+    Returns: (transcribed_text, detected_language_code)
+    """
+    audio_bytes = await audio.read()
+    filename = audio.filename if hasattr(audio, 'filename') and audio.filename else "audio.wav"
+    
+    # --- PRIMARY ROUTE (Groq API) ---
+    try:
+        print(f"[TRANSCRIPTION] Attempting Groq API transcription for {filename}...")
+        file_obj = io.BytesIO(audio_bytes)
+        file_obj.name = filename
+        
+        groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY", ""))
+        transcription = groq_client.audio.transcriptions.create(
+            file=(filename, file_obj),
+            model="whisper-large-v3-turbo",
+            response_format="verbose_json"
+        )
+        
+        return transcription.text, transcription.language
+        
+    except Exception as e:
+        # --- FALLBACK ROUTE (Local Whisper) ---
+        print(f"[TRANSCRIPTION ERROR] Groq API failed: {e}. Falling back to local Whisper model...")
+        
+        # Save bytes to a temporary file since local whisper expects a file path
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
+            temp_audio.write(audio_bytes)
+            temp_file_path = temp_audio.name
+            
+        try:
+            model = get_local_whisper_model()
+            # transcribe() performs both language detection and transcription
+            result = model.transcribe(temp_file_path)
+            
+            user_text = result["text"]
+            detected_language = result.get("language", "en")
+            
+            return user_text, detected_language
+            
+        except Exception as local_e:
+            print(f"[TRANSCRIPTION ERROR] Local Whisper fallback also failed: {local_e}")
+            raise HTTPException(status_code=500, detail="Audio transcription failed on both primary and fallback routes.")
+            
+        finally:
+            # Clean up the temporary file
+            if os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
 
 def detect_language(text: str, default: str = 'en') -> str:
     """Simple script-based language detection for Indian languages"""
@@ -149,44 +211,40 @@ async def chat_endpoint(request: Request):
         'gu': {'today': "આજના ભાવ", 'yesterday': "ગઈકાલના ભાવ", 'trend': "બજાર વલણ"}
     }
     
-    # Instruction for structured response (Summary + Details)
     # Check if request has 'type' == 'market'
-    # Since we manually parsed, we need to check data/form again
     type_val = None
     if 'application/json' in content_type:
         data = await request.json()
         type_val = data.get('type')
     
-    if type_val == 'market':
-        use_search_flag = True
-        
-        # Get localized labels
-        labels = MARKET_LABELS.get(target_lang, MARKET_LABELS['en'])
-        
-        structured_instruction = (
-            f" Provide the answer IN {target_lang_name.upper()}. "
-            "IMPORTANT: Use the Google Search tool to find the LATEST real-time market rates for the requested crop in India. "
-            "Format the response EXACTLY as follows, with NO bolding (*), NO markdown, and NO extra text:\n"
-            f"{labels['today']}: [Real rate found via search]\n"
-            f"{labels['yesterday']}: [Real rate found via search or estimate]\n"
-            f"{labels['trend']}: [Brief explanation based on search results]\n"
-            "||| [Leave this part Key strictly empty as user will click more details for info]"
-        )
-    else:
-        structured_instruction = (
-            f" Provide the answer IN {target_lang_name.upper()} in two parts using a strict delimiter '|||'. "
-            "Part 1: A concise 3-line summary. "
-            "Part 2: Detailed explanation and more information if applicable. "
-            "Structure: [Summary] ||| [Details]"
-        )
+    use_search_flag = (type_val == 'market')
 
     # Step 1: Logic Branch for Audio vs Text
     ai_response = ""
     
     if audio:
         audio_bytes = await audio.read()
-        # Create a new user message asking to transcribe and answer
-        extended_instruction = structured_instruction + "\nTASK: 1. Transcribe the user's speech exactly (in original language).\n2. Provide a helpful response to the query.\n3. FOLLOW ADDITIONAL INSTRUCTIONS IF ANY.\n\nOUTPUT FORMAT:\nTranscribed: <user_speech>\nResponse: <ai_response>"
+        
+        # Determine instruction
+        market_instruction = ""
+        if use_search_flag:
+            labels = MARKET_LABELS.get(target_lang, MARKET_LABELS['en'])
+            market_instruction = (
+                "IMPORTANT: Use the Google Search tool to find the LATEST real-time market rates for the requested crop in India. "
+                "Format the response EXACTLY as follows, with NO markdown:\n"
+                f"{labels['today']}: [Rate]\n"
+                f"{labels['yesterday']}: [Rate]\n"
+                f"{labels['trend']}: [Trend]\n"
+                "||| "
+            )
+        else:
+            market_instruction = (
+                "Provide the answer in two parts using a strict delimiter '|||'. "
+                "Part 1: A concise 3-line summary. Part 2: Detailed explanation. "
+                "Structure: [Summary] ||| [Details]"
+            )
+
+        extended_instruction = market_instruction + "\nTASK: 1. Transcribe the user's speech exactly.\n2. Provide a helpful response IN THE SAME LANGUAGE AS THE USER'S SPEECH.\nOUTPUT FORMAT:\nTranscribed: <user_speech>\nResponse: <ai_response>"
         
         trimmed_history = process_and_trim_history(session_db_history, extended_instruction, max_conversational_items=6)
         
@@ -212,18 +270,39 @@ async def chat_endpoint(request: Request):
         print(f"[GEMINI AUDIO] Transcribed: {user_message}")
         print(f"[GEMINI AUDIO] Response: {ai_response}")
         
+        # DETECT language of user speech to use for Text-to-Speech
+        detected_lang = detect_language(user_message, 'en')
+        
     elif user_message:
-        # Text Flow
-        if not language or language == 'en':
-             detected_lang = detect_language(user_message, 'en')
-        else:
-             detected_lang = detect_language(user_message, language)
+        # Text Flow - detect language entirely from user input
+        detected_lang = detect_language(user_message, 'en')
+        detected_lang_name = LANGUAGE_NAMES.get(detected_lang, 'English')
         
         if detected_lang != 'en':
             english_query = audio_service.translate_text(user_message, 'en')
             print(f"[TRANSLATE] {detected_lang}->en: {english_query}")
         else:
             english_query = user_message
+            
+        # Structure the instruction with the DETECTED language, not the UI language
+        if use_search_flag:
+            labels = MARKET_LABELS.get(target_lang, MARKET_LABELS['en'])
+            structured_instruction = (
+                f" Provide the answer IN {detected_lang_name.upper()}. "
+                "IMPORTANT: Use the Google Search tool to find the LATEST real-time market rates for the requested crop in India. "
+                "Format the response EXACTLY as follows, with NO bolding (*), NO markdown, and NO extra text:\n"
+                f"{labels['today']}: [Real rate found via search]\n"
+                f"{labels['yesterday']}: [Real rate found via search or estimate]\n"
+                f"{labels['trend']}: [Brief explanation based on search results]\n"
+                "||| [Leave this part Key strictly empty as user will click more details for info]"
+            )
+        else:
+            structured_instruction = (
+                f" Provide the answer IN {detected_lang_name.upper()} in two parts using a strict delimiter '|||'. "
+                "Part 1: A concise 3-line summary. "
+                "Part 2: Detailed explanation and more information if applicable. "
+                "Structure: [Summary] ||| [Details]"
+            )
             
         final_query = english_query + "\n\n" + structured_instruction
         trimmed_history = process_and_trim_history(session_db_history, final_query, max_conversational_items=6)
@@ -236,10 +315,6 @@ async def chat_endpoint(request: Request):
 
     # Step 3: Translation Skipped (Gemini handles it via instruction)
     final_response = ai_response
-    
-    # Update detected_lang for frontend sync
-    if 'detected_lang' not in locals():
-        detected_lang = target_lang
     
     # Step 6: Generate speech if voice enabled
     audio_url = None
@@ -384,7 +459,10 @@ def generate_tts(data: TTSRequest):
     Generate TTS audio for a given text.
     """
     text = data.text
-    language = data.language
+    
+    # Auto-detect language of the text to prevent TTS language mismatch
+    # (e.g. reading Tamil text with an English voice)
+    language = detect_language(text, default=data.language)
     
     # Clean text for TTS
     import re
@@ -488,3 +566,57 @@ def generate_content(data: GenerateContentRequest):
     except Exception as e:
         print(f"[GENERATE ERROR] {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@router.post('/voice')
+async def voice_chat_endpoint(
+    audio: UploadFile = File(...)
+):
+    """
+    Multilingual voice endpoint using Groq Whisper -> Gemini 1.5 Flash -> Edge-TTS
+    with graceful degradation to local Whisper.
+    """
+    try:
+        # 1. & 2. Receive Audio and Speech-to-Text with Fallback
+        user_text, detected_language = await transcribe_audio_with_fallback(audio)
+        
+        if not user_text:
+             raise HTTPException(status_code=422, detail="Transcription resulted in empty text.")
+             
+        # 3. LLM Processing via Gemini
+        # We instruct Gemini to respond in the detected language.
+        context = "general"
+        system_prompt = f"Respond to the user's query exactly in the same language they used. The detected language code is '{detected_language}'."
+        
+        gemini_response = gemini_service.generate_response(
+            message=user_text,
+            context=context,
+            history=[{"role": "system", "content": system_prompt}]  # Pass as system prompt in history
+        )
+        
+        # 4. Text-to-Speech via Edge-TTS
+        audio_url = None
+        # Clean text
+        import re
+        clean_text = re.sub(r'[*#_`~-]', '', gemini_response)
+        
+        # Map Whisper language codes to Edge-TTS if needed (audio_service uses 2-letter codes)
+        tts_audio_bytes = audio_service.text_to_speech(clean_text, detected_language)
+        
+        if tts_audio_bytes:
+            audio_base64 = base64.b64encode(tts_audio_bytes).decode('utf-8')
+            audio_url = f"data:audio/mp3;base64,{audio_base64}"
+            
+        # 5. Return JSON
+        return {
+            "response_text": gemini_response,
+            "user_text": user_text,
+            "detected_language": detected_language,
+            "audio_url": audio_url
+        }
+        
+    except Exception as e:
+        print(f"[VOICE ENDPOINT ERROR] {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+

@@ -22,6 +22,8 @@ print(f"Connecting to Neon: {NEON_URL}")
 local_engine = create_engine(LOCAL_URL)
 
 # For Neon + pg8000, we strip the sslmode/channel_binding and use connect_args
+if not isinstance(NEON_URL, str):
+    raise ValueError("MANDI_DATABASE_URL must be a string")
 neon_url_clean = NEON_URL.split('?')[0]
 ssl_context = ssl.create_default_context()
 ssl_context.check_hostname = False

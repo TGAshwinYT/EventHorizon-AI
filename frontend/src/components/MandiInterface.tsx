@@ -303,6 +303,42 @@ const MandiInterface = ({ currentLanguage }: MandiInterfaceProps) => {
                     {/* Price History Chart */}
                     <div className="glass-panel p-6 rounded-3xl border-white/5">
                         <PriceHistoryChart data={data.history} />
+
+                        {/* Calculated Stats from 5-day history */}
+                        {data.history && data.history.length > 0 && (() => {
+                            const prices = data.history.map((h: any) => h.price);
+                            const minVal = Math.min(...prices);
+                            const maxVal = Math.max(...prices);
+
+                            // Modal calculation
+                            const counts: { [key: number]: number } = {};
+                            prices.forEach((p: number) => counts[p] = (counts[p] || 0) + 1);
+                            let modalVal = prices[0];
+                            let maxCount = 0;
+                            for (const p in counts) {
+                                if (counts[p] > maxCount) {
+                                    maxCount = counts[p];
+                                    modalVal = Number(p);
+                                }
+                            }
+
+                            return (
+                                <div className="grid grid-cols-3 gap-4 mt-6 pt-6 border-t border-white/5">
+                                    <div className="text-center">
+                                        <div className="text-gray-400 text-xs mb-1 uppercase tracking-wider">{t.min}</div>
+                                        <div className="text-xl font-bold text-white">₹{minVal.toLocaleString()}</div>
+                                    </div>
+                                    <div className="text-center border-x border-white/5">
+                                        <div className="text-gray-400 text-xs mb-1 uppercase tracking-wider">{t.max}</div>
+                                        <div className="text-xl font-bold text-white">₹{maxVal.toLocaleString()}</div>
+                                    </div>
+                                    <div className="text-center">
+                                        <div className="text-green-400 text-xs mb-1 uppercase tracking-wider">{t.modal}</div>
+                                        <div className="text-xl font-bold text-green-400">₹{modalVal.toLocaleString()}</div>
+                                    </div>
+                                </div>
+                            );
+                        })()}
                     </div>
 
                     {/* Recent Data Table */}

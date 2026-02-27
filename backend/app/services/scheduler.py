@@ -1,45 +1,73 @@
-from apscheduler.schedulers.background import BackgroundScheduler
-from app.services.ogd_api import fetch_ogd_mandi_prices
-from app.database import AuthSessionLocal
-from app.models import ChatHistory, User
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+from app.services.ceda_api import fetch_ceda_mandi_prices
+from app.database import MandiSessionLocal, AuthSessionLocal, debug_print
+from app.models import ChatHistory
 from datetime import datetime, timedelta
-import atexit
 
-scheduler = BackgroundScheduler()
+# Initialize AsyncIOScheduler
+scheduler = AsyncIOScheduler()
 
-def cleanup_history_job():
+async def scheduled_mandi_task():
+    """
+    Wrapper function to safely run Mandi data fetch in the background.
+    Opens and closes a MandiSessionLocal session correctly.
+    """
+    debug_print("[Scheduler] Starting scheduled Mandi data fetch...")
+    db = MandiSessionLocal()
+    try:
+        # Run the sync fetcher
+        fetch_ceda_mandi_prices(db=db)
+        debug_print("[Scheduler] Mandi data fetch completed successfully.")
+    except Exception as e:
+        debug_print(f"[Scheduler] Mandi data fetch failed: {e}")
+    finally:
+        db.close()
+
+async def scheduled_cleanup_task():
     """
     Deletes chat history older than 30 days.
     """
-    print("[Scheduler] Running history cleanup...")
+    debug_print("[Scheduler] Running daily chat history cleanup...")
     db = AuthSessionLocal()
     try:
         cutoff_date = datetime.utcnow() - timedelta(days=30)
         deleted_count = db.query(ChatHistory).filter(ChatHistory.timestamp < cutoff_date).delete()
         db.commit()
-        print(f"[Scheduler] Cleanup finished. Deleted {deleted_count} old messages.")
+        debug_print(f"[Scheduler] Cleanup finished. Deleted {deleted_count} messages.")
     except Exception as e:
-        print(f"[Scheduler] Cleanup failed: {e}")
+        debug_print(f"[Scheduler] Cleanup failed: {e}")
     finally:
         db.close()
 
 def start_scheduler():
     """
-    Starts the background scheduler.
+    Starts the AsyncIOScheduler and schedules the cron jobs.
     """
     if not scheduler.running:
-        # Schedule Mandi Data Fetch every 12 hours
-        scheduler.add_job(fetch_ogd_mandi_prices, 'interval', hours=12, id='mandi_fetch_job')
+        # Schedule Mandi Data Fetch daily at 02:00 AM
+        scheduler.add_job(
+            scheduled_mandi_task, 
+            CronTrigger(hour=2, minute=0), 
+            id='mandi_daily_fetch', 
+            replace_existing=True
+        )
         
-        # Schedule History Cleanup daily
-        scheduler.add_job(cleanup_history_job, 'interval', days=1, id='history_cleanup_job')
+        # Schedule History Cleanup daily at 03:00 AM
+        scheduler.add_job(
+            scheduled_cleanup_task, 
+            CronTrigger(hour=3, minute=0), 
+            id='history_daily_cleanup', 
+            replace_existing=True
+        )
         
-        # Run Mandi Fetch immediately on startup for first-time population
-        # (Optional: might slow down startup, but good for demo)
-        # scheduler.add_job(fetch_ogd_mandi_prices, 'date', run_date=datetime.now() + timedelta(seconds=10), id='mandi_startup_fetch')
-
         scheduler.start()
-        print("[Scheduler] Background scheduler started.")
+        debug_print("Async Background Scheduler started (Mandi Fetch @ 02:00 AM).")
 
-        # Shut down the scheduler when exiting the app
-        atexit.register(scheduler.shutdown)
+def shutdown_scheduler():
+    """
+    Shuts down the scheduler cleanly.
+    """
+    if scheduler.running:
+        scheduler.shutdown()
+        debug_print("Async Background Scheduler shut down.")

@@ -61,10 +61,8 @@ class MandiPrice(MandiBase):
     modal_price = Column(Float, nullable=False)
     update_date = Column(Date, default=date.today)
 
-    # Unique constraint on (state, district, market, commodity) 
-    # This is critical for PostgreSQL 'ON CONFLICT DO UPDATE' UPSERT operations
     __table_args__ = (
-        UniqueConstraint('state', 'district', 'market', 'commodity', name='uix_market_commodity'),
+        UniqueConstraint('state', 'district', 'market', 'commodity', 'update_date', name='uix_market_commodity_date'),
     )
 
 

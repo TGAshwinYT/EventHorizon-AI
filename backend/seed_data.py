@@ -24,57 +24,84 @@ def seed_database():
     try:
         MandiBase.metadata.create_all(bind=mandi_engine)
         
-        commodity = "Tomato"
-        state = "Tamil Nadu"
-        district = "Coimbatore"
-        market = "Coimbatore Mandi"
+        commodities = [
+            'Tomato', 'Onion', 'Potato', 'Rice', 'Wheat', 
+            'Maize', 'Cotton', 'Sugarcane', 'Brinjal', 'Cabbage', 
+            'Cauliflower', 'Carrot', 'Bhindi(Ladies Finger)', 
+            'Green Chilli', 'Apple', 'Banana', 'Mango', 'Orange', 
+            'Pomegranate', 'Grapes'
+        ]
         
-        print(f"Generating 30 days of data for {commodity} in {market}, {state}...")
+        # A subset of major agricultural states and specific districts to seed
+        locations = [
+            {"state": "Tamil Nadu", "districts": ["Coimbatore", "Erode", "Madurai", "Salem"]},
+            {"state": "Maharashtra", "districts": ["Pune", "Nashik", "Nagpur", "Ahmednagar"]},
+            {"state": "Karnataka", "districts": ["Bengaluru", "Mysuru", "Belagavi", "Hubballi"]},
+            {"state": "Punjab", "districts": ["Amritsar", "Ludhiana", "Patiala", "Jalandhar"]},
+            {"state": "Uttar Pradesh", "districts": ["Agra", "Kanpur", "Lucknow", "Varanasi"]},
+            {"state": "Gujarat", "districts": ["Ahmedabad", "Surat", "Rajkot", "Vadodara"]},
+            {"state": "Madhya Pradesh", "districts": ["Indore", "Bhopal", "Ujjain", "Gwalior"]},
+            {"state": "Andhra Pradesh", "districts": ["Guntur", "Krishna", "Kurnool", "Srikakulam"]}
+        ]
         
-        # Generate exactly 30 dates ending on today
         today = datetime.utcnow()
         records_added = 0
         
-        for i in range(30):
-            # i=0 is 29 days ago, i=29 is today
-            target_date = today - timedelta(days=(29 - i))
-            arrival_date_str = target_date.strftime("%d/%m/%Y")
-            
-            # Generate fluctuating realistic prices between 900 and 1200
-            modal_price = random.randint(900, 1200)
-            
-            # Use query to avoid unique constraint violations on re-run
-            existing_record = db.query(MandiRate).filter(
-                MandiRate.state == state,
-                MandiRate.district == district,
-                MandiRate.market == market,
-                MandiRate.commodity == commodity,
-                MandiRate.arrival_date == arrival_date_str
-            ).first()
-            
-            if existing_record:
-                existing_record.modal_price = modal_price
-                # Spoof the updated_at so the 30-day API query picks it up temporally
-                existing_record.updated_at = target_date 
-            else:
-                new_rate = MandiRate(
-                    state=state,
-                    district=district,
-                    market=market,
-                    commodity=commodity,
-                    variety="Local",
-                    arrival_date=arrival_date_str,
-                    min_price=modal_price - 50,
-                    max_price=modal_price + 50,
-                    modal_price=modal_price,
-                    created_at=target_date, 
-                    updated_at=target_date # Crucial for the Prophet filtering query
-                )
-                db.add(new_rate)
-            records_added += 1
-            
+        # We will use SQLAlchemy ORM's bulk_save_objects for speed since this is a lot of data
+        # To avoid unique constraint errors during bulk insert, we'll first clear the entire table
+        # Since this is a synthetic seed command requested by the user.
+        print("Clearing existing table for clean synthetic bulk seed...")
+        db.query(MandiRate).delete()
         db.commit()
-        print(f"Successfully seeded {records_added} rows!")
+        
+        batch = []
+        batch_size = 5000
+        
+        print("Starting massive synthetic data generation. This will take a moment...")
+        
+        for loc in locations:
+            state = loc["state"]
+            for district in loc["districts"]:
+                market = f"{district} Mandi"
+                for commodity in commodities:
+                    # Base price changes based on commodity
+                    base_price = random.randint(800, 3500) 
+                    
+                    for i in range(30):
+                        target_date = today - timedelta(days=(29 - i))
+                        arrival_date_str = target_date.strftime("%d/%m/%Y")
+                        
+                        # Fluctuate day by day
+                        modal_price = base_price + random.randint(-150, 150)
+                        
+                        new_rate = MandiRate(
+                            state=state,
+                            district=district,
+                            market=market,
+                            commodity=commodity,
+                            variety="Local",
+                            arrival_date=arrival_date_str,
+                            min_price=modal_price - 50,
+                            max_price=modal_price + 50,
+                            modal_price=modal_price,
+                            created_at=target_date, 
+                            updated_at=target_date 
+                        )
+                        batch.append(new_rate)
+                        records_added += 1
+                        
+                        if len(batch) >= batch_size:
+                            db.bulk_save_objects(batch)
+                            db.commit()
+                            batch = []
+                            print(f"Committed {records_added} records...")
+                            
+        # Commit any remaining records
+        if batch:
+            db.bulk_save_objects(batch)
+            db.commit()
+            
+        print(f"\nSuccessfully generated and seeded {records_added} rows of synthetic data natively across {len(locations)} states and {len(commodities)} commodities!")
         
     except Exception as e:
         print(f"An error occurred: {e}")
