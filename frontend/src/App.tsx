@@ -480,13 +480,15 @@ function App() {
             // Optimization: Don't request audio yet. Get text first.
             formData.append('voice_enabled', 'false');
 
-            const headers: HeadersInit = {};
+            const reqHeaders: Record<string, string> = {
+                'Content-Type': 'multipart/form-data'
+            };
             if (token) {
-                headers['Authorization'] = `Bearer ${token}`;
+                reqHeaders['Authorization'] = `Bearer ${token}`;
             }
 
             const response = await api.post('/api/chat', formData, {
-                headers: token ? { 'Authorization': `Bearer ${token}` } : undefined,
+                headers: reqHeaders,
                 signal: signal
             });
 
