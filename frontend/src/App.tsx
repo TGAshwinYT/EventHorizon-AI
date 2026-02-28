@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import api from './api';
 import Sidebar from './components/Sidebar';
 import LanguageSelector from './components/LanguageSelector';
 
@@ -26,7 +27,6 @@ function App() {
     const [token, setToken] = useState<string | null>(sessionStorage.getItem('token'));
     const [username, setUsername] = useState<string | null>(sessionStorage.getItem('username'));
     const [displayName, setDisplayName] = useState<string | null>(sessionStorage.getItem('display_name'));
-    const [avatarUrl, setAvatarUrl] = useState<string | null>(sessionStorage.getItem('avatar_url'));
 
     const [voiceStatus, setVoiceStatus] = useState<'idle' | 'listening' | 'thinking' | 'speaking'>('idle');
 
@@ -53,13 +53,11 @@ function App() {
         const storedToken = sessionStorage.getItem('token');
         const storedUser = sessionStorage.getItem('username');
         const storedDisplayName = sessionStorage.getItem('display_name');
-        const storedAvatarUrl = sessionStorage.getItem('avatar_url');
 
         if (storedToken) {
             setToken(storedToken);
             setUsername(storedUser);
             setDisplayName(storedDisplayName);
-            setAvatarUrl(storedAvatarUrl);
         }
 
         // Migration/Cleanup: Remove legacy auth data from localStorage
@@ -81,14 +79,10 @@ function App() {
             setIsLoadingHistory(true);
 
             // Fetch History asynchronously
-            fetch('/api/chat/history', { headers })
+            api.get('/api/chat/history', { headers })
                 .then(res => {
-                    if (res.status === 401) throw new Error("Unauthorized");
-                    return res.json();
-                })
-                .then(historyJson => {
-                    if (Array.isArray(historyJson)) {
-                        const parsedHistory = historyJson.map((msg: any) => ({
+                    if (Array.isArray(res.data)) {
+                        const parsedHistory = res.data.map((msg: any) => ({
                             ...msg,
                             timestamp: new Date(msg.timestamp)
                         }));
@@ -96,7 +90,7 @@ function App() {
                     }
                 })
                 .catch(err => {
-                    if (err.message === "Unauthorized") {
+                    if (err.response?.status === 401) {
                         console.log("Token expired. Logging out.");
                         handleLogout();
                     } else {
@@ -106,28 +100,19 @@ function App() {
                 .finally(() => setIsLoadingHistory(false));
 
             // Fetch Profile asynchronously
-            fetch('/api/auth/profile', { headers })
-                .then(res => res.json())
-                .then(profileJson => {
+            api.get('/api/auth/profile', { headers })
+                .then(res => {
+                    const profileJson = res.data;
                     if (profileJson.display_name) {
                         setDisplayName(profileJson.display_name);
                         sessionStorage.setItem('display_name', profileJson.display_name);
-                    }
-                    if (profileJson.avatar_url) {
-                        setAvatarUrl(profileJson.avatar_url);
-                        try {
-                            sessionStorage.setItem('avatar_url', profileJson.avatar_url);
-                        } catch (e) {
-                            // Silently handle quota exceeded for large avatar images
-                        }
                     }
                 })
                 .catch(err => console.error("Failed to fetch profile:", err));
 
             // Fetch Courses asynchronously
-            fetch(`/api/market/courses?language=${language}`)
-                .then(res => res.json())
-                .then(coursesJson => setCourses(coursesJson))
+            api.get(`/api/market/courses?language=${language}`)
+                .then(res => setCourses(res.data))
                 .catch(err => console.error("Failed to fetch courses:", err));
         };
         fetchData();
@@ -152,11 +137,9 @@ function App() {
         sessionStorage.removeItem('token');
         sessionStorage.removeItem('username');
         sessionStorage.removeItem('display_name');
-        sessionStorage.removeItem('avatar_url');
         setToken(null);
         setUsername(null);
         setDisplayName(null);
-        setAvatarUrl(null);
         setMessages([]);
     };
 
@@ -411,18 +394,16 @@ function App() {
         const ttsLang = overrideLanguage || language;
 
         try {
-            const ttsResponse = await fetch('/api/chat/tts', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
-                body: JSON.stringify({
-                    text: text,
-                    language: ttsLang
-                }),
+            const ttsResponse = await api.post('/api/chat/tts', {
+                text: text,
+                language: ttsLang
+            }, {
+                headers: token ? { 'Authorization': `Bearer ${token}` } : {},
                 signal: signal
             });
 
-            if (ttsResponse.ok) {
-                const ttsData = await ttsResponse.json();
+            if (ttsResponse.status === 200) {
+                const ttsData = ttsResponse.data;
                 if (ttsData.audio_url) {
                     playAudioResponse(ttsData.audio_url);
                 } else {
@@ -443,36 +424,32 @@ function App() {
 
     const deleteMessage = async (id: string) => {
         try {
-            const res = await fetch(`/api/chat/history/${id}`, {
-                method: 'DELETE',
+            await api.delete(`/api/chat/history/${id}`, {
                 headers: token ? { 'Authorization': `Bearer ${token}` } : undefined
             });
 
-            if (res.status === 401) {
+            setMessages(prev => prev.filter(m => m.id !== id));
+        } catch (err: any) {
+            if (err.response?.status === 401) {
                 handleLogout();
                 return;
             }
-
-            setMessages(prev => prev.filter(m => m.id !== id));
-        } catch (err) {
             console.error("Failed to delete message", err);
         }
     };
 
     const clearHistory = async () => {
         try {
-            const res = await fetch(`/api/chat/history`, {
-                method: 'DELETE',
+            await api.delete(`/api/chat/history`, {
                 headers: token ? { 'Authorization': `Bearer ${token}` } : undefined
             });
 
-            if (res.status === 401) {
+            setMessages([]);
+        } catch (err: any) {
+            if (err.response?.status === 401) {
                 handleLogout();
                 return;
             }
-
-            setMessages([]);
-        } catch (err) {
             console.error("Failed to clear history", err);
         }
     };
@@ -508,21 +485,12 @@ function App() {
                 headers['Authorization'] = `Bearer ${token}`;
             }
 
-            const response = await fetch('/api/chat', {
-                method: 'POST',
+            const response = await api.post('/api/chat', formData, {
                 headers: token ? { 'Authorization': `Bearer ${token}` } : undefined,
-                body: formData,
                 signal: signal
             });
 
-            if (response.status === 401) {
-                handleLogout();
-                return;
-            }
-
-            if (!response.ok) throw new Error("Server error");
-
-            const data = await response.json();
+            const data = response.data;
 
             // Add messages to history IMMEDIATELY
             const userMsg: Message = {
@@ -556,8 +524,12 @@ function App() {
             }
 
         } catch (error: any) {
-            if (error.name === 'AbortError') {
-                console.log('Chat fetch aborted by user');
+            if (error.name === 'CanceledError' || error.name === 'AbortError') {
+                console.log('Chat request aborted by user');
+                return;
+            }
+            if (error.response?.status === 401) {
+                handleLogout();
                 return;
             }
             console.error("Chat Error:", error);
@@ -685,20 +657,11 @@ function App() {
                         onLanguageChange={setLanguage}
                         username={username}
                         displayName={displayName}
-                        avatarUrl={avatarUrl}
                         token={token}
                         onUpdateProfile={async (updates: ProfileUpdate) => {
                             if (updates.displayName !== undefined) {
                                 setDisplayName(updates.displayName);
                                 sessionStorage.setItem('display_name', updates.displayName);
-                            }
-                            if (updates.avatarUrl !== undefined) {
-                                setAvatarUrl(updates.avatarUrl);
-                                try {
-                                    sessionStorage.setItem('avatar_url', updates.avatarUrl);
-                                } catch (e) {
-                                    // Silently handle quota exceeded
-                                }
                             }
                         }}
                         onLogout={handleLogout}

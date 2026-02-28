@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { Loader2, TrendingUp, AlertTriangle } from 'lucide-react';
+import api from '../api';
 
 interface ForecastData {
     date: string;
@@ -26,11 +27,10 @@ const MandiForecasting = ({ crop, state, labels }: MandiForecastingProps) => {
             setLoading(true);
             setError(null);
             try {
-                const response = await fetch(`/api/market/forecast?crop=${encodeURIComponent(crop)}&state=${encodeURIComponent(state)}`);
-                if (!response.ok) {
-                    throw new Error('Failed to fetch forecast data');
-                }
-                const result = await response.json();
+                // Fetch forecast using the centralized api instance
+                const response = await api.get(`/api/market/forecast?crop=${encodeURIComponent(crop)}&state=${encodeURIComponent(state)}`);
+
+                const result = response.data;
 
                 // Format dates for display (e.g. "Feb 21")
                 const formattedData = result.map((item: any) => {

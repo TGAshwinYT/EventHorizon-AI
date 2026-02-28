@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
+import api from '../api';
 
 interface AuthProps {
     onLogin: (token: string, username: string) => void;
@@ -42,17 +43,8 @@ const Auth = ({ onLogin }: AuthProps) => {
         }
 
         try {
-            const res = await fetch(endpoint, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body)
-            });
-
-            const data = await res.json();
-
-            if (!res.ok) {
-                throw new Error(data.detail || data.error || 'Authentication failed');
-            }
+            const res = await api.post(endpoint, body);
+            const data = res.data;
 
             if (isReset) {
                 setIsReset(false);
@@ -74,7 +66,7 @@ const Auth = ({ onLogin }: AuthProps) => {
             }
 
         } catch (err: any) {
-            setError(err.message);
+            setError(err.response?.data?.detail || err.response?.data?.error || err.message || 'Authentication failed');
         } finally {
             setLoading(false);
         }

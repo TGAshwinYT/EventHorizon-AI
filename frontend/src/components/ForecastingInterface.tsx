@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { CloudRain, TrendingUp, Search } from 'lucide-react';
 import MandiForecasting from './MandiForecasting';
 import AgriWeather from './AgriWeather';
+import api from '../api';
 
 interface ForecastingInterfaceProps {
     currentLanguage: string;
@@ -40,9 +41,9 @@ const ForecastingInterface = ({ labels }: ForecastingInterfaceProps) => {
         const fetchDistricts = async () => {
             setLoadingDistricts(true);
             try {
-                const res = await fetch(`/api/market/districts?crop=${encodeURIComponent(crop)}&state=${encodeURIComponent(state)}`);
-                if (res.ok) {
-                    const dat = await res.json();
+                const res = await api.get(`/api/market/districts?crop=${encodeURIComponent(crop)}&state=${encodeURIComponent(state)}`);
+                const dat = res.data;
+                if (dat.districts) {
                     const fetchedDistricts = ['All Districts', ...dat.districts];
                     setAvailableDistricts(fetchedDistricts);
                     if (!fetchedDistricts.includes(district)) {
@@ -76,8 +77,8 @@ const ForecastingInterface = ({ labels }: ForecastingInterfaceProps) => {
                 <button
                     onClick={() => setActiveTab('mandi')}
                     className={`flex-1 flex flex-col md:flex-row items-center justify-center gap-2 py-3 px-4 text-center rounded-xl font-medium transition-all ${activeTab === 'mandi'
-                        ? 'bg-purple-600 shadow-lg shadow-purple-900/20 text-white'
-                        : 'text-gray-400 hover:text-white hover:bg-white/5'
+                            ? 'bg-purple-600 shadow-lg shadow-purple-900/20 text-white'
+                            : 'text-gray-400 hover:text-white hover:bg-white/5'
                         }`}
                 >
                     <TrendingUp className="w-5 h-5 shrink-0" />
@@ -86,8 +87,8 @@ const ForecastingInterface = ({ labels }: ForecastingInterfaceProps) => {
                 <button
                     onClick={() => setActiveTab('weather')}
                     className={`flex-1 flex flex-col md:flex-row items-center justify-center gap-2 py-3 px-4 text-center rounded-xl font-medium transition-all ${activeTab === 'weather'
-                        ? 'bg-blue-600 shadow-lg shadow-blue-900/20 text-white'
-                        : 'text-gray-400 hover:text-white hover:bg-white/5'
+                            ? 'bg-blue-600 shadow-lg shadow-blue-900/20 text-white'
+                            : 'text-gray-400 hover:text-white hover:bg-white/5'
                         }`}
                 >
                     <CloudRain className="w-5 h-5 shrink-0" />

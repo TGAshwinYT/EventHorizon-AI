@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Search, Calendar, Loader2 } from 'lucide-react';
+import { Search, Loader2, Calendar } from 'lucide-react';
+import api from '../api';
 import PriceHistoryChart from './PriceHistoryChart';
 
 interface MandiInterfaceProps {
@@ -19,9 +20,9 @@ const MandiInterface = ({ currentLanguage }: MandiInterfaceProps) => {
         const fetchDistricts = async () => {
             setLoadingDistricts(true);
             try {
-                const res = await fetch(`/api/market/districts?crop=${encodeURIComponent(crop)}&state=${encodeURIComponent(state)}`);
-                if (res.ok) {
-                    const dat = await res.json();
+                const res = await api.get(`/api/market/districts?crop=${encodeURIComponent(crop)}&state=${encodeURIComponent(state)}`);
+                const dat = res.data;
+                if (dat.districts) {
                     const fetchedDistricts = ['All Districts', ...dat.districts];
                     setAvailableDistricts(fetchedDistricts);
                     if (!fetchedDistricts.includes(district)) {
@@ -29,7 +30,7 @@ const MandiInterface = ({ currentLanguage }: MandiInterfaceProps) => {
                     }
                 }
             } catch (error) {
-                console.error("Failed to fetch districts");
+                console.error("Failed to fetch districts", error);
             } finally {
                 setLoadingDistricts(false);
             }
@@ -54,16 +55,16 @@ const MandiInterface = ({ currentLanguage }: MandiInterfaceProps) => {
     const cropTranslations: { [key: string]: { [key: string]: string } } = {
         'Tomato': { hi: 'टमाटर', ta: 'தக்காளி', gu: 'ટામેટા', bn: 'টমেটো', te: 'టమాటో', mr: 'टोमॅटो', kn: 'ಟೊಮ್ಯಾಟೊ', ml: 'തക്കാളി' },
         'Onion': { hi: 'प्याज', ta: 'வெங்காயம்', gu: 'ડુંગળી', bn: 'পেঁয়াজ', te: 'ఉల్లిపాయ', mr: 'कांदा', kn: 'ಈರುಳ್ಳಿ', ml: 'സവാള' },
-        'Potato': { hi: 'आलू', ta: 'உருளைக்கிழங்கு', gu: 'બટાકા', bn: 'আলু', te: 'బంగాళాదుంప', mr: 'बटाटा', kn: 'ಆಲೂಗಡ್ಡೆ', ml: 'ಉരുളക്കിഴങ്ങ്' },
+        'Potato': { hi: 'आलू', ta: 'உருளைக்கிழங்கு', gu: 'બટાકા', bn: 'আলু', te: 'బంగాళాదుంప', mr: 'बटाटा', kn: 'ಆಲೂಗಡ್ಡೆ', ml: 'ಉರುಳക്കിഴങ്ങ്' },
         'Rice': { hi: 'चावल', ta: 'அரிசி', gu: 'ચોખા', bn: 'চাল', te: 'బియ్యం', mr: 'तांदूळ', kn: 'ಅಕ್ಕಿ', ml: 'ಅരി' },
         'Wheat': { hi: 'गेहूं', ta: 'கோதுமை', gu: 'ઘઉં', bn: 'গম', te: 'గోధుమ', mr: 'गहू', kn: 'ಗೋಧಿ', ml: 'ಗೋതമ്പ്' },
         'Cotton': { hi: 'कपास', ta: 'பருத்தி', gu: 'કપાસ', bn: 'তুলা', te: 'పత్తి', mr: 'कापूस', kn: 'ಹತ್ತಿ', ml: 'ಪരുത്തി' },
-        'Sugarcane': { hi: 'गन्ना', ta: 'கரும்பு', gu: 'શેરડી', bn: 'আખ', te: 'చెరకు', mr: 'ऊस', kn: 'ಕಬ್ಬು', ml: 'ಕരിമ്പ്' },
+        'Sugarcane': { hi: 'गन्ना', ta: 'கரும்பு', gu: 'શેરડી', bn: 'আখ', te: 'చెరకు', mr: 'ऊस', kn: 'ಕಬ್ಬು', ml: 'കരിമ്പ്' },
         'Brinjal': { hi: 'बैंगन', ta: 'கத்திரிக்காய்', gu: 'રીંગણ', bn: 'বেগুন', te: 'వంకాయ', mr: 'वांगी', kn: 'ಬದನೆಕಾಯಿ', ml: 'വഴുതന' },
         'Cabbage': { hi: 'पत्ता गोभी', ta: 'முட்டைக்கோஸ்', gu: 'કોબી', bn: 'বাঁધাকপি', te: 'కాబేజీ', mr: 'કોબી', kn: 'ಎಲೆಕೋಸು', ml: 'കാബേജ്' },
-        'Cauliflower': { hi: 'फूल गोभी', ta: 'காலிஃபிளவர்', gu: 'ફૂલકોબી', bn: 'ফুলকপি', te: 'కాలిಫ್લವರ್', mr: 'फ्लावर', kn: 'ಹೂಕೋಸು', ml: 'ಕೋളിഫ്ലവർ' },
+        'Cauliflower': { hi: 'फूल गोभी', ta: 'காலிஃபிளவர்', gu: 'ફૂલકોબી', bn: 'ফুলকপি', te: 'కాలిಫ್લవర్', mr: 'फ्लावर', kn: 'ಹೂಕೋಸು', ml: 'ಕೋളിഫ്ലവർ' },
         'Carrot': { hi: 'गाजर', ta: 'கேரட்', gu: 'ગાજર', bn: 'গাজর', te: 'కాజర్', mr: 'गाजर', kn: 'ಗಜ್ಜರಿ', ml: 'ಕ್ಯಾರೆಟ್' },
-        'Bhindi(Ladies Finger)': { hi: 'भिंडी', ta: 'வெண்டைக்காய்', gu: 'ભીંડા', bn: 'ঢেঁড়સ', te: 'బెండకాయ', mr: 'भेंडी', kn: 'ಬೆಂಡೆಕಾಯಿ', ml: 'വെണ്ടയ്ക്ക' },
+        'Bhindi(Ladies Finger)': { hi: 'भिंडी', ta: 'வெண்டைக்காய்', gu: 'ભીંડા', bn: 'ঢেঁড়স', te: 'బెండకాయ', mr: 'भेंडी', kn: 'ಬೆಂಡೆಕಾಯಿ', ml: 'വെണ്ടയ്ക്ക' },
         'Green Chilli': { hi: 'हरी मिर्च', ta: 'பச்சை மிளகாய்', gu: 'લીલા મરચાં', bn: 'কাঁচা মরিচ', te: 'పచ్చి మిరపకాయ', mr: 'हिरवी मिरची', kn: 'ಹಸಿ ಮೆಣಸಿನಕಾಯಿ', ml: 'പച്ചമുളക്' },
         'Apple': { hi: 'सेब', ta: 'ஆப்பிள்', gu: 'સફરજન', bn: 'আপেল', te: 'ఆపిల్', mr: 'सफरचंद', kn: 'ಸೇಬು', ml: 'ആപ്പിൾ' },
         'Banana': { hi: 'केला', ta: 'வாழைப்பழம்', gu: 'કેળાં', bn: 'কলা', te: 'అరటిపండు', mr: 'केळी', kn: 'ಬಾಳೆಹಣ್ಣು', ml: 'വാഴപ്പഴം' },
@@ -217,12 +218,13 @@ const MandiInterface = ({ currentLanguage }: MandiInterfaceProps) => {
         try {
             // Fetch from backend
             const districtParam = district !== 'All Districts' ? `&district=${encodeURIComponent(district)}` : '';
-            const response = await fetch(`/api/market/mandi?crop=${encodeURIComponent(crop)}&state=${encodeURIComponent(state)}${districtParam}`);
-            if (response.ok) {
-                const result = await response.json();
+            const response = await api.get(`/api/market/mandi?crop=${encodeURIComponent(crop)}&state=${encodeURIComponent(state)}${districtParam}`);
+            const result = response.data;
+
+            if (result) { // Assuming result will always have data if successful
                 setData(result);
             } else {
-                console.error("Failed to fetch mandi rates");
+                console.error("Failed to fetch mandi rates: No data in response");
             }
         } catch (error) {
             console.error("Error fetching rates:", error);

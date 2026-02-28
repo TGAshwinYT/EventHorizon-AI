@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { CloudRain, Sun, Cloud, Wind, Droplets, AlertTriangle } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
+import api from '../api';
 
 interface WeatherDay {
     date: string;
@@ -64,18 +65,19 @@ export default function AgriWeather({ labels }: AgriWeatherProps = {}) {
             setError(null);
 
             try {
-                const response = await fetch(`/api/weather?state=${encodeURIComponent(selectedState)}&district=${encodeURIComponent(selectedDistrict)}`);
+                const response = await api.get(`/ api / weather ? state = ${encodeURIComponent(selectedState)}& district=${encodeURIComponent(selectedDistrict)} `);
+                const data = response.data;
 
-                if (!response.ok) {
-                    // Fallback to mock data if the endpoint isn't ready yet
+                if (data.error) {
+                    setError(data.error);
+                    // Fallback to mock data if the endpoint returns an error
                     generateMockData();
-                    return;
+                } else {
+                    setWeatherForecast(data);
                 }
-
-                const data = await response.json();
-                setWeatherForecast(data);
-            } catch (err) {
+            } catch (err: any) {
                 console.error("Error fetching weather:", err);
+                setError(err.response?.data?.error || err.message || "Failed to fetch weather data");
                 // Fallback to mock data for demonstration purposes if backend fails
                 generateMockData();
             } finally {
@@ -182,7 +184,7 @@ export default function AgriWeather({ labels }: AgriWeatherProps = {}) {
                         {loading && weatherForecast.length === 0 ? (
                             Array.from({ length: 5 }).map((_, idx) => (
                                 <div
-                                    key={`skeleton-${idx}`}
+                                    key={`skeleton - ${idx} `}
                                     className="flex flex-col justify-between bg-[#1A1C23]/80 backdrop-blur-md rounded-2xl p-4 min-w-[280px] sm:min-w-[170px] lg:min-w-[180px] flex-1 border border-white/5 animate-pulse snap-center"
                                     style={{ minHeight: '300px' }}
                                 >
@@ -211,10 +213,10 @@ export default function AgriWeather({ labels }: AgriWeatherProps = {}) {
                             weatherForecast.map((day, idx) => (
                                 <div
                                     key={idx}
-                                    className={`flex flex-col justify-between bg-[#1A1C23]/80 backdrop-blur-md rounded-2xl p-4 min-w-[280px] sm:min-w-[170px] lg:min-w-[180px] flex-1 transition-all hover:-translate-y-1 hover:shadow-[0_10px_30px_rgba(0,0,0,0.5)] snap-center ${day.isToday || idx === 0
-                                        ? 'border-2 border-[#00FF7F] shadow-[0_0_20px_rgba(0,255,127,0.15)] relative scale-105 md:scale-100 z-10'
-                                        : 'border border-white/5'
-                                        }`}
+                                    className={`flex flex - col justify - between bg - [#1A1C23] / 80 backdrop - blur - md rounded - 2xl p - 4 min - w - [280px] sm: min - w - [170px] lg: min - w - [180px] flex - 1 transition - all hover: -translate - y - 1 hover: shadow - [0_10px_30px_rgba(0, 0, 0, 0.5)] snap - center ${day.isToday || idx === 0
+                                            ? 'border-2 border-[#00FF7F] shadow-[0_0_20px_rgba(0,255,127,0.15)] relative scale-105 md:scale-100 z-10'
+                                            : 'border border-white/5'
+                                        } `}
                                     style={{ minHeight: '300px' }}
                                 >
                                     <h4 className="text-center text-gray-200 font-medium mb-4">{day.date}</h4>
@@ -233,9 +235,9 @@ export default function AgriWeather({ labels }: AgriWeatherProps = {}) {
                                             <div className="h-6 w-full bg-black/40 rounded-full overflow-hidden relative border border-white/5 flex items-center justify-center">
                                                 <div
                                                     className="absolute top-0 left-0 h-full bg-[#00FF7F] transition-all duration-1000 ease-out"
-                                                    style={{ width: `${day.rainProb}%` }}
+                                                    style={{ width: `${day.rainProb}% ` }}
                                                 />
-                                                <span className={`relative text-xs font-bold z-10 ${day.rainProb >= 50 ? 'text-black' : 'text-gray-300'}`}>
+                                                <span className={`relative text - xs font - bold z - 10 ${day.rainProb >= 50 ? 'text-black' : 'text-gray-300'} `}>
                                                     Rain Probability: {day.rainProb}%
                                                 </span>
                                             </div>
@@ -302,7 +304,7 @@ export default function AgriWeather({ labels }: AgriWeatherProps = {}) {
                                         tick={{ fill: '#9CA3AF', fontSize: 12 }}
                                         axisLine={false}
                                         tickLine={false}
-                                        tickFormatter={(val) => `${val}`}
+                                        tickFormatter={(val) => `${val} `}
                                     />
                                     <Tooltip
                                         contentStyle={{ backgroundColor: '#1A1C23', borderColor: '#ffffff20', borderRadius: '12px' }}
