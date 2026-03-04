@@ -27,4 +27,5 @@ jobs:
           MANDI_DATABASE_URL: ${{ secrets.MANDI_DATABASE_URL }}
           CEDA_API_KEY: ${{ secrets.CEDA_API_KEY }}
         run: |
+          cd backend  # <-- This tells GitHub to open the backend folder
           python trigger_manual_fetch.py
