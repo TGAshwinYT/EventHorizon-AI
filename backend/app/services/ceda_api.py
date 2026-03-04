@@ -47,7 +47,6 @@ def _format_ceda_date(iso_date_str: str) -> str:
 def fetch_ceda_mandi_prices(db: Optional[Session] = None, target_date: Optional[str] = None):
     """
     Fetches data from CEDA-AMD API and stores it in the database.
-    Replaces OGD data fetcher. Optimized for no state loop and bulk insert.
     """
     import time
     try:
@@ -86,15 +85,17 @@ def fetch_ceda_mandi_prices(db: Optional[Session] = None, target_date: Optional[
             seen_keys = set()
             
             for crop_name, crop_id in COMMODITY_NAME_TO_ID.items():
-                print(f"[CEDA API] Fetching {crop_name} (ID: {crop_id}) from {from_date} to {to_date}...")
-                
-                payload = {
-                    "commodity_id": crop_id,
-                    "from_date": from_date,
-                    "to_date": to_date
-                }
-                
-                while True:
+                for state_id, state_name in STATE_ID_TO_NAME.items():
+                    print(f"[CEDA API] Fetching {crop_name} (ID: {crop_id}) for {state_name} (ID: {state_id})...")
+                    
+                    # Corrected Payload names to match the API requirements
+                    payload = {
+                        "commodity_id": crop_id,
+                        "state_id": state_id,
+                        "start_date": from_date,
+                        "end_date": to_date
+                    }
+                    
                     try:
                         response = requests.post(BASE_URL, headers=headers, json=payload, timeout=30)
                         if response.status_code == 200:
@@ -102,11 +103,9 @@ def fetch_ceda_mandi_prices(db: Optional[Session] = None, target_date: Optional[
                             records = data.get("output", {}).get("data", [])
                             
                             for record in records:
-                                state_id = record.get("census_state_id")
                                 district_id = record.get("census_district_id")
                                 
-                                state = STATE_ID_TO_NAME.get(state_id, "Unknown") if state_id else "Unknown"
-                                district_name = DISTRICT_ID_TO_NAME.get(district_id, "Unknown") if district_id else "Unknown District"
+                                district_name = DISTRICT_ID_TO_NAME.get(district_id, "Unknown District") if district_id else "Unknown District"
                                 market = f"{district_name} (Aggregated)" if district_name != "Unknown District" else "State Aggregated"
                                 district = district_name
                                 commodity = crop_name
@@ -118,7 +117,7 @@ def fetch_ceda_mandi_prices(db: Optional[Session] = None, target_date: Optional[
                                 if commodity == "Paddy(Dhan)(Common)":
                                     commodity = "Rice"
                                     
-                                key = (state, district, market, commodity, arrival_date)
+                                key = (state_name, district, market, commodity, arrival_date)
                                 if key in seen_keys:
                                     continue
                                 seen_keys.add(key)
@@ -139,7 +138,7 @@ def fetch_ceda_mandi_prices(db: Optional[Session] = None, target_date: Optional[
                                         continue
 
                                     mandi_records_batch.append({
-                                        "state": state,
+                                        "state": state_name,
                                         "district": district,
                                         "market": market,
                                         "commodity": commodity,
@@ -151,30 +150,23 @@ def fetch_ceda_mandi_prices(db: Optional[Session] = None, target_date: Optional[
                                     })
                                 except (ValueError, TypeError):
                                     continue
-                            break # Success, break retry loop
-                            
+                                
                         elif response.status_code == 429:
-                            print(f"[CEDA API] Warning: 429 Too Many Requests. Sleeping for 15 seconds and retrying {crop_name}...")
+                            print(f"[CEDA API] Warning: 429 Too Many Requests. Sleeping for 15 seconds...")
                             time.sleep(15)
-                            continue
                         elif response.status_code == 404:
-                            break # No data, next crop
+                            pass # No data for this specific state/crop combination, just continue
                         else:
-                            print(f"[CEDA API] Warning: API returned status {response.status_code} for Crop {crop_id}")
+                            print(f"[CEDA API] Warning: API returned status {response.status_code} for Crop {crop_id}, State {state_id}")
                             print(f"[CEDA API] Response text: {response.text}")
-                            break
                             
                     except requests.exceptions.Timeout:
-                        print(f"[CEDA API] Timeout fetching {crop_name}. Retrying in 15 seconds...")
-                        time.sleep(15)
-                        continue
+                        print(f"[CEDA API] Timeout fetching {crop_name}. Skipping...")
                     except Exception as e:
-                        print(f"[CEDA API] Error fetching {crop_name}: {e}. Retrying in 15 seconds...")
-                        time.sleep(15)
-                        continue
-                
-                # Sleep between each crop iteration
-                time.sleep(2)
+                        print(f"[CEDA API] Error fetching {crop_name}: {e}. Skipping...")
+                    
+                    # Sleep slightly between state requests to avoid hammering the government API
+                    time.sleep(0.5)
                 
             print(f"[CEDA API] Finished fetching. Total valid records batched: {len(mandi_records_batch)}")
             
@@ -230,6 +222,7 @@ def fetch_ceda_mandi_prices(db: Optional[Session] = None, target_date: Optional[
                 db.close()
     except Exception as e:
         print(f"[CEDA API] CRITICAL FAILURE: {e}")
+
 
 def get_mandi_data_from_db(db: Session, crop: str, state: str, district: Optional[str] = None):
     """
