@@ -1,0 +1,29 @@
+name: Mandi Data Cron
+
+on:
+  schedule:
+    # Runs at 6:00 AM IST (00:30 UTC)
+    - cron: '30 0 * * *'
+  workflow_dispatch:
+
+jobs:
+  fetch_data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        working-directory: ./backend
+        run: pip install -r requirements.txt
+
+      - name: Execute manual fetch
+        working-directory: ./backend
+        env:
+          MANDI_DATABASE_URL: ${{ secrets.MANDI_DATABASE_URL }}
+        run: python trigger_manual_fetch.py
