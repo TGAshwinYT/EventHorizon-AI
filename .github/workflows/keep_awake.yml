@@ -1,15 +1,13 @@
 name: Keep Hugging Face Space Awake
 
-# This tells GitHub to run this script automatically on a timer
 on:
   schedule:
-    # Runs automatically every 12 hours
     - cron: '0 */12 * * *'
-  workflow_dispatch: # This adds a manual "Run" button on GitHub
+  workflow_dispatch:
 
 jobs:
   ping-space:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04 # <-- THIS IS THE MAGIC FIX
     steps:
       - name: Setup Node.js
         uses: actions/setup-node@v3
