@@ -7,32 +7,21 @@ on:
 
 jobs:
   ping-space:
-    runs-on: ubuntu-22.04 # <-- THIS IS THE MAGIC FIX
+    runs-on: ubuntu-latest
     steps:
-      - name: Setup Node.js
-        uses: actions/setup-node@v3
-        with:
-          node-version: '18'
-
-      - name: Install Headless Browser
-        run: npm install puppeteer
-
-      - name: Visit the App
+      - name: Wake up Hugging Face
         run: |
           node -e "
-          const puppeteer = require('puppeteer');
-          (async () => {
-            console.log('Starting hidden browser...');
-            const browser = await puppeteer.launch({ 
-              headless: 'new',
-              args: ['--no-sandbox', '--disable-setuid-sandbox'] 
+          console.log('Sending wake-up signal to Hugging Face...');
+          fetch('https://tgashwinyt-eventhorizon-backend.hf.space')
+            .then(res => {
+              console.log('Successfully hit the server! Status code: ' + res.status);
+              if (res.status === 200) {
+                console.log('The server is awake and ready.');
+              }
+            })
+            .catch(err => {
+              console.error('Failed to reach server:', err);
+              process.exit(1);
             });
-            const page = await browser.newPage();
-            
-            console.log('Navigating to Hugging Face...');
-            await page.goto('https://huggingface.co/spaces/TGAshwinYT/EventHorizon-Backend', { waitUntil: 'networkidle2' });
-            
-            console.log('Successfully loaded the space! The server is awake.');
-            await browser.close();
-          })();
           "
