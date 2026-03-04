@@ -25,11 +25,13 @@ jobs:
           const puppeteer = require('puppeteer');
           (async () => {
             console.log('Starting hidden browser...');
-            const browser = await puppeteer.launch({ headless: 'new' });
+            const browser = await puppeteer.launch({ 
+              headless: 'new',
+              args: ['--no-sandbox', '--disable-setuid-sandbox'] 
+            });
             const page = await browser.newPage();
             
             console.log('Navigating to Hugging Face...');
-            // I have already added your exact Space URL here!
             await page.goto('https://huggingface.co/spaces/TGAshwinYT/EventHorizon-Backend', { waitUntil: 'networkidle2' });
             
             console.log('Successfully loaded the space! The server is awake.');
