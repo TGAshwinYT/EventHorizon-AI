@@ -84,12 +84,25 @@ def fetch_ceda_mandi_prices(db: Optional[Session] = None, target_date: Optional[
             mandi_records_batch = []
             seen_keys = set()
             
-            for crop_name, crop_id in COMMODITY_NAME_TO_ID.items():
-                for state_id, state_name in STATE_ID_TO_NAME.items():
-                    print(f"[CEDA API] Fetching {crop_name} (ID: {crop_id}) for {state_name} (ID: {state_id})...")
+            # Use a session for connection reuse
+            session = requests.Session()
+            session.headers.update(headers)
+            
+            commodity_list = list(COMMODITY_NAME_TO_ID.items())
+            state_list = list(STATE_ID_TO_NAME.items())
+            total_commodities = len(commodity_list)
+            total_states = len(state_list)
+            
+            print(f"[CEDA API] Starting fetch for {total_commodities} commodities across {total_states} states.")
+            print(f"[CEDA API] Estimated total requests: {total_commodities * total_states}")
+            
+            for c_idx, (crop_name, crop_id) in enumerate(commodity_list, 1):
+                print(f"\n[CEDA API] [{c_idx}/{total_commodities}] Processing Commodity: {crop_name} (ID: {crop_id})")
+                
+                for s_idx, (state_id, state_name) in enumerate(state_list, 1):
+                    # Detailed progress log for real-time visibility in GH Actions
+                    print(f"  > ({s_idx}/{total_states}) Fetching for {state_name}...", end=" ", flush=True)
                     
-                    # FORCE integers for IDs, and provide both date naming conventions 
-                    # just in case the API is looking for the old from_date format
                     payload = {
                         "commodity_id": int(crop_id),
                         "state_id": int(state_id),
@@ -99,21 +112,20 @@ def fetch_ceda_mandi_prices(db: Optional[Session] = None, target_date: Optional[
                         "to_date": to_date
                     }
                     
-                    # The vital retry loop for 429 Rate Limits
                     max_retries = 3
                     retries = 0
                     
                     while retries < max_retries:
                         try:
-                            response = requests.post(BASE_URL, headers=headers, json=payload, timeout=30)
+                            response = session.post(BASE_URL, json=payload, timeout=30)
                             
                             if response.status_code == 200:
                                 data = response.json()
                                 records = data.get("output", {}).get("data", [])
                                 
+                                found_count = 0
                                 for record in records:
                                     district_id = record.get("census_district_id")
-                                    
                                     district_name = DISTRICT_ID_TO_NAME.get(district_id, "Unknown District") if district_id else "Unknown District"
                                     market = f"{district_name} (Aggregated)" if district_name != "Unknown District" else "State Aggregated"
                                     district = district_name
@@ -157,38 +169,43 @@ def fetch_ceda_mandi_prices(db: Optional[Session] = None, target_date: Optional[
                                             "max_price": max_price,
                                             "modal_price": modal_price
                                         })
+                                        found_count += 1
                                     except (ValueError, TypeError):
                                         continue
                                 
-                                break # Success! Break out of the retry loop.
+                                print(f"Success! (Added {found_count} records)")
+                                break
                                     
                             elif response.status_code == 429:
-                                print(f"[CEDA API] Warning: 429 Too Many Requests. Sleeping for 20 seconds...")
+                                print(f"FAILED (429 Rate Limit). Retrying in 30s...")
                                 time.sleep(30)
                                 retries += 1
-                                continue # Try the exact same request again
+                                continue
                                 
                             elif response.status_code == 404:
-                                break # No data for this state/crop, move on safely
+                                print("No data.")
+                                break
                                 
                             else:
-                                print(f"[CEDA API] Warning: API returned status {response.status_code} for Crop {crop_id}, State {state_id}")
-                                print(f"[CEDA API] Response text: {response.text}")
-                                break # Break on 400 bad request, no point retrying
+                                print(f"FAILED (Status {response.status_code})")
+                                break
                                 
                         except requests.exceptions.Timeout:
-                            print(f"[CEDA API] Timeout fetching {crop_name}. Sleeping and retrying...")
+                            print("Timeout. Retrying...")
                             time.sleep(10)
                             retries += 1
                         except Exception as e:
-                            print(f"[CEDA API] Error fetching {crop_name}: {e}. Retrying...")
+                            print(f"Error: {e}. Retrying...")
                             time.sleep(10)
                             retries += 1
                     
-                    # Sleep slightly between successful state requests to avoid triggering the 429 limit
-                    time.sleep(4.0)
+                    # Faster but safe sleep between successful state requests
+                    time.sleep(2.5)
                 
-            print(f"[CEDA API] Finished fetching. Total valid records batched: {len(mandi_records_batch)}")
+                # Additional small break after completing a full commodity to let API breathe
+                time.sleep(1.0)
+
+            print(f"\n[CEDA API] Finished fetching. Total valid records batched: {len(mandi_records_batch)}")
             
             if mandi_records_batch:
                 print("[CEDA API] Executing bulk upsert...")
@@ -237,11 +254,11 @@ def fetch_ceda_mandi_prices(db: Optional[Session] = None, target_date: Optional[
             db.commit()
             print(f"[CEDA API] Cleanup complete. Removed {result.rowcount} outdated records (Older than 5 days).")
 
+        except Exception as e:
+            print(f"[CEDA API] CRITICAL FAILURE: {e}")
         finally:
             if close_session:
                 db.close()
-    except Exception as e:
-        print(f"[CEDA API] CRITICAL FAILURE: {e}")
 
 
 def get_mandi_data_from_db(db: Session, crop: str, state: str, district: Optional[str] = None):

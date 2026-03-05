@@ -326,13 +326,13 @@ export default function AgriWeather({ labels }: AgriWeatherProps = {}) {
 
                                         {/* Rain Probability Bar */}
                                         <div className="mb-6">
-                                            <div className="h-6 w-full bg-black/40 rounded-full overflow-hidden relative border border-white/5 flex items-center justify-center">
+                                            <div className="h-7 w-full bg-black/40 rounded-full overflow-hidden relative border border-white/5 flex items-center justify-center">
                                                 <div
                                                     className="absolute top-0 left-0 h-full bg-[#00FF7F] transition-all duration-1000 ease-out"
-                                                    style={{ width: `${day.rainProb}% ` }}
+                                                    style={{ width: `${day.rainProb}%` }}
                                                 />
-                                                <span className={`relative text - xs font - bold z - 10 ${day.rainProb >= 50 ? 'text-black' : 'text-gray-300'} `}>
-                                                    Rain Probability: {day.rainProb}%
+                                                <span className={`relative text-[10px] font-bold z-10 ${day.rainProb >= 45 ? 'text-gray-900' : 'text-white'}`}>
+                                                    Rain: {day.rainProb}%
                                                 </span>
                                             </div>
                                         </div>
