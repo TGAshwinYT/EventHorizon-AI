@@ -184,8 +184,8 @@ export default function AgriWeather({ labels }: AgriWeatherProps = {}) {
                         {loading && weatherForecast.length === 0 ? (
                             Array.from({ length: 5 }).map((_, idx) => (
                                 <div
-                                    key={`skeleton - ${idx} `}
-                                    className="flex flex-col justify-between bg-[#1A1C23]/80 backdrop-blur-md rounded-2xl p-4 min-w-[280px] sm:min-w-[170px] lg:min-w-[180px] flex-1 border border-white/5 animate-pulse snap-center"
+                                    key={`skeleton-${idx}`}
+                                    className="flex flex-col justify-between bg-[#1A1C23]/80 backdrop-blur-md rounded-2xl p-4 min-w-[280px] sm:min-w-[170px] lg:min-w-[180px] flex-1 border border-white/5 animate-pulse snap-center relative z-10"
                                     style={{ minHeight: '300px' }}
                                 >
                                     <h4 className="h-4 bg-white/10 rounded w-1/2 mx-auto mb-4"></h4>
@@ -213,10 +213,10 @@ export default function AgriWeather({ labels }: AgriWeatherProps = {}) {
                             weatherForecast.map((day, idx) => (
                                 <div
                                     key={idx}
-                                    className={`flex flex - col justify - between bg - [#1A1C23] / 80 backdrop - blur - md rounded - 2xl p - 4 min - w - [280px] sm: min - w - [170px] lg: min - w - [180px] flex - 1 transition - all hover: -translate - y - 1 hover: shadow - [0_10px_30px_rgba(0, 0, 0, 0.5)] snap - center ${day.isToday || idx === 0
-                                        ? 'border-2 border-[#00FF7F] shadow-[0_0_20px_rgba(0,255,127,0.15)] relative scale-105 md:scale-100 z-10'
+                                    className={`flex flex-col justify-between bg-[#1A1C23]/80 backdrop-blur-md rounded-2xl p-4 min-w-[280px] sm:min-w-[170px] lg:min-w-[180px] flex-1 transition-all hover:-translate-y-1 hover:shadow-[0_10px_30px_rgba(0,0,0,0.5)] snap-center relative z-10 ${day.isToday || idx === 0
+                                        ? 'border-2 border-[#00FF7F] shadow-[0_0_20px_rgba(0,255,127,0.15)] scale-105 md:scale-100'
                                         : 'border border-white/5'
-                                        } `}
+                                        }`}
                                     style={{ minHeight: '300px' }}
                                 >
                                     <h4 className="text-center text-gray-200 font-medium mb-4">{day.date}</h4>
