@@ -49,6 +49,7 @@ def fetch_ceda_mandi_prices(db: Optional[Session] = None, target_date: Optional[
     Fetches data from CEDA-AMD API and stores it in the database.
     """
     import time
+    close_session = False
     try:
         if not CEDA_API_KEY:
             print("[CEDA API] No CEDA_API_KEY found in environment variables. Skipping fetch.")
@@ -61,204 +62,202 @@ def fetch_ceda_mandi_prices(db: Optional[Session] = None, target_date: Optional[
             "Content-Type": "application/json"
         }
         
-        close_session = False
         if db is None:
             db = MandiSessionLocal()
             close_session = True
 
-        try:
-            days_to_fetch = 1 if target_date else 5
-            to_date = target_date if target_date else datetime.now().strftime("%Y-%m-%d")
-            
-            if target_date:
-                try:
-                    dt = datetime.strptime(target_date, "%d/%m/%Y")
-                    to_date = dt.strftime("%Y-%m-%d")
-                    from_date = (dt - timedelta(days=1)).strftime("%Y-%m-%d")
-                except:
-                    to_date = datetime.now().strftime("%Y-%m-%d")
-                    from_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
-            else:
-                 from_date = (datetime.now() - timedelta(days=days_to_fetch)).strftime("%Y-%m-%d")
+        days_to_fetch = 1 if target_date else 5
+        to_date = target_date if target_date else datetime.now().strftime("%Y-%m-%d")
+        
+        if target_date:
+            try:
+                dt = datetime.strptime(target_date, "%d/%m/%Y")
+                to_date = dt.strftime("%Y-%m-%d")
+                from_date = (dt - timedelta(days=1)).strftime("%Y-%m-%d")
+            except:
+                to_date = datetime.now().strftime("%Y-%m-%d")
+                from_date = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+        else:
+             from_date = (datetime.now() - timedelta(days=days_to_fetch)).strftime("%Y-%m-%d")
 
-            mandi_records_batch = []
-            seen_keys = set()
+        mandi_records_batch = []
+        seen_keys = set()
+        
+        # Use a session for connection reuse
+        session = requests.Session()
+        session.headers.update(headers)
+        
+        commodity_list = list(COMMODITY_NAME_TO_ID.items())
+        state_list = list(STATE_ID_TO_NAME.items())
+        total_commodities = len(commodity_list)
+        total_states = len(state_list)
+        
+        print(f"[CEDA API] Starting fetch for {total_commodities} commodities across {total_states} states.")
+        print(f"[CEDA API] Estimated total requests: {total_commodities * total_states}")
+        
+        for c_idx, (crop_name, crop_id) in enumerate(commodity_list, 1):
+            print(f"\n[CEDA API] [{c_idx}/{total_commodities}] Processing Commodity: {crop_name} (ID: {crop_id})")
             
-            # Use a session for connection reuse
-            session = requests.Session()
-            session.headers.update(headers)
-            
-            commodity_list = list(COMMODITY_NAME_TO_ID.items())
-            state_list = list(STATE_ID_TO_NAME.items())
-            total_commodities = len(commodity_list)
-            total_states = len(state_list)
-            
-            print(f"[CEDA API] Starting fetch for {total_commodities} commodities across {total_states} states.")
-            print(f"[CEDA API] Estimated total requests: {total_commodities * total_states}")
-            
-            for c_idx, (crop_name, crop_id) in enumerate(commodity_list, 1):
-                print(f"\n[CEDA API] [{c_idx}/{total_commodities}] Processing Commodity: {crop_name} (ID: {crop_id})")
+            for s_idx, (state_id, state_name) in enumerate(state_list, 1):
+                # Detailed progress log for real-time visibility in GH Actions
+                print(f"  > ({s_idx}/{total_states}) Fetching for {state_name}...", end=" ", flush=True)
                 
-                for s_idx, (state_id, state_name) in enumerate(state_list, 1):
-                    # Detailed progress log for real-time visibility in GH Actions
-                    print(f"  > ({s_idx}/{total_states}) Fetching for {state_name}...", end=" ", flush=True)
-                    
-                    payload = {
-                        "commodity_id": int(crop_id),
-                        "state_id": int(state_id),
-                        "start_date": from_date,
-                        "end_date": to_date,
-                        "from_date": from_date,
-                        "to_date": to_date
-                    }
-                    
-                    max_retries = 3
-                    retries = 0
-                    
-                    while retries < max_retries:
-                        try:
-                            response = session.post(BASE_URL, json=payload, timeout=30)
+                payload = {
+                    "commodity_id": int(crop_id),
+                    "state_id": int(state_id),
+                    "start_date": from_date,
+                    "end_date": to_date,
+                    "from_date": from_date,
+                    "to_date": to_date
+                }
+                
+                max_retries = 3
+                retries = 0
+                
+                while retries < max_retries:
+                    try:
+                        response = session.post(BASE_URL, json=payload, timeout=30)
+                        
+                        if response.status_code == 200:
+                            data = response.json()
+                            records = data.get("output", {}).get("data", [])
                             
-                            if response.status_code == 200:
-                                data = response.json()
-                                records = data.get("output", {}).get("data", [])
+                            found_count = 0
+                            for record in records:
+                                district_id = record.get("census_district_id")
+                                district_name = DISTRICT_ID_TO_NAME.get(district_id, "Unknown District") if district_id else "Unknown District"
+                                market = f"{district_name} (Aggregated)" if district_name != "Unknown District" else "State Aggregated"
+                                district = district_name
+                                commodity = crop_name
+                                variety = ""
                                 
-                                found_count = 0
-                                for record in records:
-                                    district_id = record.get("census_district_id")
-                                    district_name = DISTRICT_ID_TO_NAME.get(district_id, "Unknown District") if district_id else "Unknown District"
-                                    market = f"{district_name} (Aggregated)" if district_name != "Unknown District" else "State Aggregated"
-                                    district = district_name
-                                    commodity = crop_name
-                                    variety = ""
+                                raw_date = record.get("date", "")
+                                arrival_date = _format_ceda_date(raw_date)
+                                
+                                if commodity == "Paddy(Dhan)(Common)":
+                                    commodity = "Rice"
                                     
-                                    raw_date = record.get("date", "")
-                                    arrival_date = _format_ceda_date(raw_date)
-                                    
-                                    if commodity == "Paddy(Dhan)(Common)":
-                                        commodity = "Rice"
-                                        
-                                    key = (state_name, district, market, commodity, arrival_date)
-                                    if key in seen_keys:
+                                key = (state_name, district, market, commodity, arrival_date)
+                                if key in seen_keys:
+                                    continue
+                                seen_keys.add(key)
+                                
+                                try:
+                                    raw_min = record.get("min_price")
+                                    raw_max = record.get("max_price")
+                                    raw_modal = record.get("modal_price")
+
+                                    if raw_min is None or raw_max is None or raw_modal is None:
                                         continue
-                                    seen_keys.add(key)
-                                    
-                                    try:
-                                        raw_min = record.get("min_price")
-                                        raw_max = record.get("max_price")
-                                        raw_modal = record.get("modal_price")
 
-                                        if raw_min is None or raw_max is None or raw_modal is None:
-                                            continue
+                                    min_price = int(float(raw_min))
+                                    max_price = int(float(raw_max))
+                                    modal_price = int(float(raw_modal))
 
-                                        min_price = int(float(raw_min))
-                                        max_price = int(float(raw_max))
-                                        modal_price = int(float(raw_modal))
-
-                                        if modal_price <= 0:
-                                            continue
-
-                                        mandi_records_batch.append({
-                                            "state": state_name,
-                                            "district": district,
-                                            "market": market,
-                                            "commodity": commodity,
-                                            "variety": variety,
-                                            "arrival_date": arrival_date,
-                                            "min_price": min_price,
-                                            "max_price": max_price,
-                                            "modal_price": modal_price
-                                        })
-                                        found_count += 1
-                                    except (ValueError, TypeError):
+                                    if modal_price <= 0:
                                         continue
-                                
-                                print(f"Success! (Added {found_count} records)")
-                                break
-                                    
-                            elif response.status_code == 429:
-                                print(f"FAILED (429 Rate Limit). Retrying in 30s...")
-                                time.sleep(30)
-                                retries += 1
-                                continue
-                                
-                            elif response.status_code == 404:
-                                print("No data.")
-                                break
-                                
-                            else:
-                                print(f"FAILED (Status {response.status_code})")
-                                break
-                                
-                        except requests.exceptions.Timeout:
-                            print("Timeout. Retrying...")
-                            time.sleep(10)
-                            retries += 1
-                        except Exception as e:
-                            print(f"Error: {e}. Retrying...")
-                            time.sleep(10)
-                            retries += 1
-                    
-                    # Faster but safe sleep between successful state requests
-                    time.sleep(2.5)
-                
-                # Additional small break after completing a full commodity to let API breathe
-                time.sleep(1.0)
 
-            print(f"\n[CEDA API] Finished fetching. Total valid records batched: {len(mandi_records_batch)}")
-            
-            if mandi_records_batch:
-                print("[CEDA API] Executing bulk upsert...")
-                stmt = insert(MandiRate).values(mandi_records_batch)
+                                    mandi_records_batch.append({
+                                        "state": state_name,
+                                        "district": district,
+                                        "market": market,
+                                        "commodity": commodity,
+                                        "variety": variety,
+                                        "arrival_date": arrival_date,
+                                        "min_price": min_price,
+                                        "max_price": max_price,
+                                        "modal_price": modal_price
+                                    })
+                                    found_count += 1
+                                except (ValueError, TypeError):
+                                    continue
+                            
+                            print(f"Success! (Added {found_count} records)")
+                            break
+                                
+                        elif response.status_code == 429:
+                            print(f"FAILED (429 Rate Limit). Retrying in 30s...")
+                            time.sleep(30)
+                            retries += 1
+                            continue
+                            
+                        elif response.status_code == 404:
+                            print("No data.")
+                            break
+                            
+                        else:
+                            print(f"FAILED (Status {response.status_code})")
+                            break
+                            
+                    except requests.exceptions.Timeout:
+                        print("Timeout. Retrying...")
+                        time.sleep(10)
+                        retries += 1
+                    except Exception as e:
+                        print(f"Error: {e}. Retrying...")
+                        time.sleep(10)
+                        retries += 1
                 
-                try:
-                    upsert_stmt = stmt.on_conflict_do_update(
-                        constraint="uix_market_commodity_date", 
-                        set_={
-                            "min_price": stmt.excluded.min_price,
-                            "max_price": stmt.excluded.max_price,
-                            "modal_price": stmt.excluded.modal_price,
-                            "variety": stmt.excluded.variety,
-                            "updated_at": datetime.utcnow()
-                        },
-                        where=(stmt.excluded.modal_price > 0)
-                    )
-                    db.execute(upsert_stmt)
-                except Exception as db_e:
-                    print(f"[CEDA API] Default constraint 'uix_market_commodity_date' failed: {db_e}. Falling back to 'uix_mandi_rate'...")
-                    db.rollback()
-                    upsert_stmt_fallback = stmt.on_conflict_do_update(
-                        constraint="uix_mandi_rate", 
-                        set_={
-                            "min_price": stmt.excluded.min_price,
-                            "max_price": stmt.excluded.max_price,
-                            "modal_price": stmt.excluded.modal_price,
-                            "variety": stmt.excluded.variety,
-                            "updated_at": datetime.utcnow()
-                        },
-                        where=(stmt.excluded.modal_price > 0)
-                    )
-                    db.execute(upsert_stmt_fallback)
-                    
-                db.commit()
-                print("[CEDA API] Bulk upsert successful.")
+                # Faster but safe sleep between successful state requests
+                time.sleep(2.5)
             
-            # --- 5-DAY ROLLING WINDOW CLEANUP ---
-            from sqlalchemy import text
-            print("[CEDA API] Executing 5-day rolling cleanup...")
-            cleanup_query = text("""
-                DELETE FROM mandi_rates 
-                WHERE to_date(arrival_date, 'DD/MM/YYYY') < (CURRENT_DATE - INTERVAL '5 days')
-            """)
-            result = db.execute(cleanup_query)
+            # Additional small break after completing a full commodity to let API breathe
+            time.sleep(1.0)
+
+        print(f"\n[CEDA API] Finished fetching. Total valid records batched: {len(mandi_records_batch)}")
+        
+        if mandi_records_batch:
+            print("[CEDA API] Executing bulk upsert...")
+            stmt = insert(MandiRate).values(mandi_records_batch)
+            
+            try:
+                upsert_stmt = stmt.on_conflict_do_update(
+                    constraint="uix_market_commodity_date", 
+                    set_={
+                        "min_price": stmt.excluded.min_price,
+                        "max_price": stmt.excluded.max_price,
+                        "modal_price": stmt.excluded.modal_price,
+                        "variety": stmt.excluded.variety,
+                        "updated_at": datetime.utcnow()
+                    },
+                    where=(stmt.excluded.modal_price > 0)
+                )
+                db.execute(upsert_stmt)
+            except Exception as db_e:
+                print(f"[CEDA API] Default constraint 'uix_market_commodity_date' failed: {db_e}. Falling back to 'uix_mandi_rate'...")
+                db.rollback()
+                upsert_stmt_fallback = stmt.on_conflict_do_update(
+                    constraint="uix_mandi_rate", 
+                    set_={
+                        "min_price": stmt.excluded.min_price,
+                        "max_price": stmt.excluded.max_price,
+                        "modal_price": stmt.excluded.modal_price,
+                        "variety": stmt.excluded.variety,
+                        "updated_at": datetime.utcnow()
+                    },
+                    where=(stmt.excluded.modal_price > 0)
+                )
+                db.execute(upsert_stmt_fallback)
+                
             db.commit()
-            print(f"[CEDA API] Cleanup complete. Removed {result.rowcount} outdated records (Older than 5 days).")
+            print("[CEDA API] Bulk upsert successful.")
+        
+        # --- 5-DAY ROLLING WINDOW CLEANUP ---
+        from sqlalchemy import text
+        print("[CEDA API] Executing 5-day rolling cleanup...")
+        cleanup_query = text("""
+            DELETE FROM mandi_rates 
+            WHERE to_date(arrival_date, 'DD/MM/YYYY') < (CURRENT_DATE - INTERVAL '5 days')
+        """)
+        result = db.execute(cleanup_query)
+        db.commit()
+        print(f"[CEDA API] Cleanup complete. Removed {result.rowcount} outdated records (Older than 5 days).")
 
-        except Exception as e:
-            print(f"[CEDA API] CRITICAL FAILURE: {e}")
-        finally:
-            if close_session:
-                db.close()
+    except Exception as e:
+        print(f"[CEDA API] CRITICAL FAILURE: {e}")
+    finally:
+        if close_session:
+            db.close()
 
 
 def get_mandi_data_from_db(db: Session, crop: str, state: str, district: Optional[str] = None):
