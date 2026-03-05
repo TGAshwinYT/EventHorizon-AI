@@ -65,7 +65,7 @@ export default function AgriWeather({ labels }: AgriWeatherProps = {}) {
             setError(null);
 
             try {
-                const response = await api.get(`/ api / weather ? state = ${encodeURIComponent(selectedState)}& district=${encodeURIComponent(selectedDistrict)} `);
+                const response = await api.get(`/api/weather?state=${encodeURIComponent(selectedState)}&district=${encodeURIComponent(selectedDistrict)}`);
                 const data = response.data;
 
                 if (data.error) {
