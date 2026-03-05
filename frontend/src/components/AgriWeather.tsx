@@ -182,7 +182,7 @@ export default function AgriWeather({ labels }: AgriWeatherProps = {}) {
             <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-[#00FF7F]/5 rounded-full blur-[120px] pointer-events-none -translate-y-1/2 translate-x-1/2" />
 
             {/* 2. Header & Selection UI */}
-            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end mb-8 relative z-10 gap-6">
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end mb-8 relative z-30 gap-6">
                 <div>
                     <h2 className="text-3xl font-bold text-[#00FF7F] mb-2 tracking-tight">{labels?.weatherAgriWeather || 'Hyper-Local Agri-Weather'}</h2>
                     <p className="text-gray-300 flex items-center gap-2">
