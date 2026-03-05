@@ -166,8 +166,8 @@ def get_price_forecast(
     import pandas as pd
     from prophet import Prophet
 
-    # 1. Fetch historical data for the last 30 days
-    cutoff_date = datetime.utcnow() - timedelta(days=30)
+    # 1. Fetch historical data for the last 35 days
+    cutoff_date = datetime.utcnow() - timedelta(days=35)
     records = db.query(MandiRate).filter(
         MandiRate.state == state,
         MandiRate.commodity == crop,

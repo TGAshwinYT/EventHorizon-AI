@@ -87,7 +87,8 @@ const MandiInterface = ({ currentLanguage }: MandiInterfaceProps) => {
             date: "Date",
             min: "Min",
             max: "Max",
-            modal: "Modal"
+            modal: "Modal",
+            lastUpdated: (days: number) => `Updated ${days} day${days > 1 ? 's' : ''} ago`
         },
         hi: {
             header: "मंडी भाव",
@@ -102,7 +103,8 @@ const MandiInterface = ({ currentLanguage }: MandiInterfaceProps) => {
             date: "दिनांक",
             min: "न्यूनतम",
             max: "अधिकतम",
-            modal: "मॉडल"
+            modal: "मॉडल",
+            lastUpdated: (days: number) => `${days} दिन पहले अपडेट किया गया`
         },
         ta: {
             header: "சந்தை நிலவரம்",
@@ -293,8 +295,16 @@ const MandiInterface = ({ currentLanguage }: MandiInterfaceProps) => {
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div className="bg-green-900/20 border border-green-500/30 p-6 rounded-2xl flex flex-col items-center justify-center text-center">
                             <span className="text-green-400 text-sm mb-2 font-medium">{t.todayPrice} {currentLanguage !== 'en' && `/ ${translations['en'].todayPrice}`}</span>
-                            <div className="text-4xl font-bold text-white mb-1">{data.current_price}</div>
-                            <span className="text-gray-400 text-xs">{data.price_unit}</span>
+                            <div className="flex flex-col items-center">
+                                <div className="text-4xl font-bold text-white mb-1">{data.current_price}</div>
+                                {data.is_historical && (
+                                    <div className="bg-amber-500/20 text-amber-400 text-[10px] font-bold px-2 py-0.5 rounded-full border border-amber-500/30 flex items-center gap-1 mt-1">
+                                        <div className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-pulse" />
+                                        {t.lastUpdated ? t.lastUpdated(data.last_updated_days_ago) : `Updated ${data.last_updated_days_ago}d ago`}
+                                    </div>
+                                )}
+                            </div>
+                            <span className="text-gray-400 text-xs mt-1">{data.price_unit}</span>
                         </div>
                         <div className="bg-blue-900/20 border border-blue-500/30 p-6 rounded-2xl flex flex-col items-center justify-center text-center">
                             <span className="text-blue-400 text-sm mb-2 font-medium">{t.change} {currentLanguage !== 'en' && `/ ${translations['en'].change}`}</span>
