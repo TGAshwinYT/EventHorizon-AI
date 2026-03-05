@@ -104,6 +104,13 @@ async def fetch_mandi_prices_cached(crop: str, state: str, district: str = None)
             all_min = min((r.min_price for r in records if r.min_price > 0), default=0)
             all_max = max((r.max_price for r in records if r.max_price > 0), default=0)
 
+            # Calculate "Last Known Good" metadata
+            latest_record_date = records[0].arrival_date
+            latest_dt = datetime.strptime(latest_record_date, "%d/%m/%Y")
+            today_dt = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            days_ago = (today_dt - latest_dt).days
+            is_historical = days_ago > 0
+
             return {
                 "current_price": f"₹{int(current_price):,}",
                 "price_unit": "per quintal",
@@ -112,7 +119,9 @@ async def fetch_mandi_prices_cached(crop: str, state: str, district: str = None)
                 "history": list(reversed(history)),  # Reverse for chart x-axis chronological order
                 "recent_data": recent_data,
                 "min_price": f"₹{int(all_min):,}",
-                "max_price": f"₹{int(all_max):,}"
+                "max_price": f"₹{int(all_max):,}",
+                "is_historical": is_historical,
+                "last_updated_days_ago": max(0, days_ago)
             }
         finally:
             db.close()

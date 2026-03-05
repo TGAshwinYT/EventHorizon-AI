@@ -260,16 +260,16 @@ def fetch_ceda_mandi_prices(db: Optional[Session] = None, target_date: Optional[
             db.commit()
             print("[CEDA API] Bulk upsert successful.")
         
-        # --- 5-DAY ROLLING WINDOW CLEANUP ---
+        # --- 35-DAY ROLLING WINDOW CLEANUP ---
         from sqlalchemy import text
-        print("[CEDA API] Executing 5-day rolling cleanup...")
+        print("[CEDA API] Executing 35-day rolling cleanup...")
         cleanup_query = text("""
             DELETE FROM mandi_rates 
-            WHERE to_date(arrival_date, 'DD/MM/YYYY') < (CURRENT_DATE - INTERVAL '5 days')
+            WHERE to_date(arrival_date, 'DD/MM/YYYY') < (CURRENT_DATE - INTERVAL '35 days')
         """)
         result = db.execute(cleanup_query)
         db.commit()
-        print(f"[CEDA API] Cleanup complete. Removed {result.rowcount} outdated records (Older than 5 days).")
+        print(f"[CEDA API] Cleanup complete. Removed {result.rowcount} outdated records (Older than 35 days).")
 
     except Exception as e:
         print(f"[CEDA API] CRITICAL FAILURE: {e}")
@@ -421,17 +421,24 @@ def get_mandi_data_from_db(db: Session, crop: str, state: str, district: Optiona
     all_min = min((r.min_price for r in records if r.min_price > 0), default=0)
     all_max = max((r.max_price for r in records if r.max_price > 0), default=0)
 
+    # Calculate "Last Known Good" metadata
+    latest_dt = datetime.strptime(latest_date_key, "%Y-%m-%d")
+    today_dt = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    days_ago = (today_dt - latest_dt).days
+    is_historical = days_ago > 0
+
     return {
-        "current_price": f"₹{int(avg_modal):,}",
+        "current_price": int(avg_modal),
         "price_unit": "per quintal",
         "change": change_str,
         "market": f"{crop} - {state}{' - ' + district if district and district != 'All Districts' else ''}",
         "history": history,
         "recent_data": recent_data,
-        "min_price": f"₹{int(all_min):,}",
-        "max_price": f"₹{int(all_max):,}"
+        "min_price": all_min,
+        "max_price": all_max,
+        "is_historical": is_historical,
+        "last_updated_days_ago": max(0, days_ago)
     }
 
 # Ensure backwards compatibility for external scripts that might import `fetch_ogd_mandi_prices`
 fetch_ogd_mandi_prices = fetch_ceda_mandi_prices
-
