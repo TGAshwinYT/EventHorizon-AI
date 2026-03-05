@@ -21,4 +21,4 @@ COPY . /code
 EXPOSE 7860
 
 # Command to run the FastAPI app via Uvicorn on port 7860
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7860"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "7860", "--proxy-headers", "--forwarded-allow-ips", "*"]

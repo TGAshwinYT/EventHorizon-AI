@@ -65,7 +65,7 @@ export default function AgriWeather({ labels }: AgriWeatherProps = {}) {
             setError(null);
 
             try {
-                const response = await api.get(`/api/weather?state=${encodeURIComponent(selectedState)}&district=${encodeURIComponent(selectedDistrict)}`);
+                const response = await api.get(`/api/weather/?state=${encodeURIComponent(selectedState)}&district=${encodeURIComponent(selectedDistrict)}`);
                 const data = response.data;
 
                 if (data.error) {
@@ -214,8 +214,8 @@ export default function AgriWeather({ labels }: AgriWeatherProps = {}) {
                                 <div
                                     key={idx}
                                     className={`flex flex - col justify - between bg - [#1A1C23] / 80 backdrop - blur - md rounded - 2xl p - 4 min - w - [280px] sm: min - w - [170px] lg: min - w - [180px] flex - 1 transition - all hover: -translate - y - 1 hover: shadow - [0_10px_30px_rgba(0, 0, 0, 0.5)] snap - center ${day.isToday || idx === 0
-                                            ? 'border-2 border-[#00FF7F] shadow-[0_0_20px_rgba(0,255,127,0.15)] relative scale-105 md:scale-100 z-10'
-                                            : 'border border-white/5'
+                                        ? 'border-2 border-[#00FF7F] shadow-[0_0_20px_rgba(0,255,127,0.15)] relative scale-105 md:scale-100 z-10'
+                                        : 'border border-white/5'
                                         } `}
                                     style={{ minHeight: '300px' }}
                                 >
