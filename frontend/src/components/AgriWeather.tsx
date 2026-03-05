@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { CloudRain, Sun, Cloud, Wind, Droplets, AlertTriangle } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { CloudRain, Sun, Cloud, Wind, Droplets, AlertTriangle, ChevronDown } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import api from '../api';
 
@@ -20,18 +20,44 @@ interface AgriWeatherProps {
 }
 
 export default function AgriWeather({ labels }: AgriWeatherProps = {}) {
-    // 1. Data Structure for Cascading Dropdowns
+    // 1. Data Structure for Cascading Dropdowns - All Indian States & UTs
     const indiaLocations: Record<string, string[]> = {
-        'Maharashtra': ['Mumbai', 'Pune', 'Nagpur', 'Nashik', 'Aurangabad'],
-        'Tamil Nadu': ['Chennai', 'Coimbatore', 'Madurai', 'Erode', 'Salem'],
-        'Bihar': ['Patna', 'Gaya', 'Bhagalpur', 'Muzaffarpur', 'Purnia'],
-        'Karnataka': ['Bengaluru', 'Mysuru', 'Hubballi', 'Mangaluru', 'Belagavi'],
-        'Kerala': ['Thiruvananthapuram', 'Kochi', 'Kozhikode', 'Thrissur', 'Kollam'],
+        'Andaman and Nicobar Islands': ['Port Blair', 'Nicobar', 'South Andaman'],
+        'Andhra Pradesh': ['Visakhapatnam', 'Vijayawada', 'Guntur', 'Nellore', 'Kurnool', 'Tirupati'],
+        'Arunachal Pradesh': ['Itanagar', 'Tawang', 'Pasighat', 'Ziro', 'Tezu'],
+        'Assam': ['Guwahati', 'Silchar', 'Dibrugarh', 'Jorhat', 'Nagaon', 'Tezpur'],
+        'Bihar': ['Patna', 'Gaya', 'Bhagalpur', 'Muzaffarpur', 'Purnia', 'Darbhanga'],
+        'Chandigarh': ['Chandigarh'],
+        'Chhattisgarh': ['Raipur', 'Bhilai', 'Bilaspur', 'Korba', 'Durg'],
+        'Dadra and Nagar Haveli and Daman and Diu': ['Daman', 'Diu', 'Silvassa'],
+        'Delhi': ['New Delhi', 'North Delhi', 'South Delhi', 'East Delhi', 'West Delhi'],
+        'Goa': ['Panaji', 'Vasco da Gama', 'Margao', 'Mapusa', 'Ponda'],
+        'Gujarat': ['Ahmedabad', 'Surat', 'Vadodara', 'Rajkot', 'Bhavnagar', 'Jamnagar'],
+        'Haryana': ['Gurugram', 'Faridabad', 'Panipat', 'Ambala', 'Rohtak', 'Hisar'],
+        'Himachal Pradesh': ['Shimla', 'Manali', 'Dharamshala', 'Mandi', 'Solan'],
+        'Jammu and Kashmir': ['Srinagar', 'Jammu', 'Anantnag', 'Baramulla', 'Kathua'],
+        'Jharkhand': ['Ranchi', 'Jamshedpur', 'Dhanbad', 'Bokaro', 'Deoghar'],
+        'Karnataka': ['Bengaluru', 'Mysuru', 'Hubballi', 'Mangaluru', 'Belagavi', 'Ballari'],
+        'Kerala': ['Thiruvananthapuram', 'Kochi', 'Kozhikode', 'Thrissur', 'Kollam', 'Kannur'],
+        'Ladakh': ['Leh', 'Kargil'],
+        'Lakshadweep': ['Kavaratti', 'Agatti', 'Minicoy'],
+        'Madhya Pradesh': ['Indore', 'Bhopal', 'Jabalpur', 'Gwalior', 'Ujjain'],
+        'Maharashtra': ['Mumbai', 'Pune', 'Nagpur', 'Nashik', 'Aurangabad', 'Solapur'],
+        'Manipur': ['Imphal', 'Churachandpur', 'Thoubal', 'Bishnupur'],
+        'Meghalaya': ['Shillong', 'Tura', 'Nongstoin', 'Jowai'],
+        'Mizoram': ['Aizawl', 'Lunglei', 'Champhai', 'Serchhip'],
+        'Nagaland': ['Kohima', 'Dimapur', 'Mokokchung', 'Tuensang'],
+        'Odisha': ['Bhubaneswar', 'Cuttack', 'Rourkela', 'Brahmapur', 'Sambalpur'],
+        'Puducherry': ['Puducherry', 'Ozhukarai', 'Karaikal', 'Mahe', 'Yanam'],
+        'Punjab': ['Ludhiana', 'Amritsar', 'Jalandhar', 'Patiala', 'Bathinda'],
+        'Rajasthan': ['Jaipur', 'Jodhpur', 'Udaipur', 'Kota', 'Ajmer', 'Bikaner'],
+        'Sikkim': ['Gangtok', 'Namchi', 'Geyzing', 'Mangan'],
+        'Tamil Nadu': ['Chennai', 'Coimbatore', 'Madurai', 'Tiruchirappalli', 'Salem', 'Erode'],
         'Telangana': ['Hyderabad', 'Warangal', 'Nizamabad', 'Khammam', 'Karimnagar'],
-        'Andhra Pradesh': ['Visakhapatnam', 'Vijayawada', 'Guntur', 'Nellore', 'Kurnool'],
-        'Gujarat': ['Ahmedabad', 'Surat', 'Vadodara', 'Rajkot', 'Bhavnagar'],
-        'Uttar Pradesh': ['Lucknow', 'Kanpur', 'Agra', 'Varanasi', 'Prayagraj'],
-        'West Bengal': ['Kolkata', 'Howrah', 'Darjeeling', 'Siliguri', 'Asansol'],
+        'Tripura': ['Agartala', 'Udaipur', 'Dharmanagar', 'Kailashahar'],
+        'Uttar Pradesh': ['Lucknow', 'Kanpur', 'Agra', 'Varanasi', 'Prayagraj', 'Noida'],
+        'Uttarakhand': ['Dehradun', 'Haridwar', 'Roorkee', 'Haldwani', 'Rudrapur'],
+        'West Bengal': ['Kolkata', 'Howrah', 'Darjeeling', 'Siliguri', 'Asansol', 'Durgapur']
     };
 
     const states = Object.keys(indiaLocations).sort();
@@ -44,14 +70,34 @@ export default function AgriWeather({ labels }: AgriWeatherProps = {}) {
     // UI states
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [isStateDropdownOpen, setIsStateDropdownOpen] = useState(false);
+    const [isDistrictDropdownOpen, setIsDistrictDropdownOpen] = useState(false);
+
+    // Ref for click outside detection
+    const dropdownRef = useRef<HTMLDivElement>(null);
+
+    // Close dropdowns when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+                setIsStateDropdownOpen(false);
+                setIsDistrictDropdownOpen(false);
+            }
+        };
+
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, []);
 
     // Derived State for Available Districts
     const availableDistricts = selectedState ? indiaLocations[selectedState] || [] : [];
 
     // Handle State Change
-    const handleStateChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        const newState = e.target.value;
+    const handleStateChange = (newState: string) => {
         setSelectedState(newState);
+        setIsStateDropdownOpen(false);
 
         // Reset district to the first available district in the new state
         const newDistricts = indiaLocations[newState] || [];
@@ -144,27 +190,75 @@ export default function AgriWeather({ labels }: AgriWeatherProps = {}) {
                     </p>
                 </div>
 
-                <div className="flex flex-col sm:flex-row gap-4 w-full lg:w-auto">
-                    <div className="flex flex-col gap-1 w-full sm:w-48">
-                        <label className="text-xs text-gray-400 ml-1">{labels?.selectState || 'Select State'}</label>
-                        <select
-                            value={selectedState}
-                            onChange={handleStateChange}
-                            className="bg-[#1A1C23] border border-[#00FF7F]/30 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#00FF7F] transition-colors appearance-none shadow-[0_0_15px_rgba(0,255,127,0.1)]"
+                <div className="flex flex-col sm:flex-row gap-4 w-full lg:w-auto" ref={dropdownRef}>
+                    {/* Custom State Dropdown */}
+                    <div className="flex flex-col gap-1 w-full sm:w-56 relative">
+                        <label className="text-xs font-semibold uppercase tracking-wider text-gray-500 ml-1 mb-1">{labels?.selectState || 'Select State'}</label>
+                        <div
+                            onClick={() => {
+                                setIsStateDropdownOpen(!isStateDropdownOpen);
+                                setIsDistrictDropdownOpen(false);
+                            }}
+                            className={`flex items-center justify-between bg-[#1A1C23] border ${isStateDropdownOpen ? 'border-[#00FF7F]' : 'border-white/10'} rounded-xl px-4 py-3 text-white cursor-pointer transition-all hover:bg-[#252833] shadow-lg group`}
                         >
-                            {states.map(s => <option key={s} value={s}>{s}</option>)}
-                        </select>
+                            <span className="text-sm md:text-base font-medium truncate">
+                                {selectedState || 'Choose State'}
+                            </span>
+                            <ChevronDown className={`w-4 h-4 text-[#00FF7F] transition-transform duration-300 ${isStateDropdownOpen ? 'rotate-180' : ''}`} />
+                        </div>
+
+                        {isStateDropdownOpen && (
+                            <div className="absolute top-[calc(100%+8px)] left-0 right-0 bg-[#1A1C23] border border-white/10 rounded-xl shadow-2xl z-[100] overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                                <div className="max-h-64 overflow-y-auto custom-scrollbar p-1">
+                                    {states.map(s => (
+                                        <div
+                                            key={s}
+                                            onClick={() => handleStateChange(s)}
+                                            className={`px-4 py-2.5 text-sm md:text-base rounded-lg cursor-pointer transition-colors ${selectedState === s ? 'bg-[#00FF7F]/10 text-[#00FF7F]' : 'text-gray-300 hover:bg-white/5 hover:text-white'}`}
+                                        >
+                                            {s}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </div>
-                    <div className="flex flex-col gap-1 w-full sm:w-48">
-                        <label className="text-xs text-gray-400 ml-1">{labels?.selectDistrict || 'Select District'}</label>
-                        <select
-                            value={selectedDistrict}
-                            onChange={(e) => setSelectedDistrict(e.target.value)}
-                            disabled={!selectedState || availableDistricts.length === 0}
-                            className="bg-[#1A1C23] border border-[#00FF7F]/30 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#00FF7F] transition-colors appearance-none shadow-[0_0_15px_rgba(0,255,127,0.1)] disabled:opacity-50 disabled:cursor-not-allowed"
+
+                    {/* Custom District Dropdown */}
+                    <div className="flex flex-col gap-1 w-full sm:w-56 relative">
+                        <label className="text-xs font-semibold uppercase tracking-wider text-gray-500 ml-1 mb-1">{labels?.selectDistrict || 'Select District'}</label>
+                        <div
+                            onClick={() => {
+                                if (!selectedState || availableDistricts.length === 0) return;
+                                setIsDistrictDropdownOpen(!isDistrictDropdownOpen);
+                                setIsStateDropdownOpen(false);
+                            }}
+                            className={`flex items-center justify-between bg-[#1A1C23] border ${isDistrictDropdownOpen ? 'border-[#00FF7F]' : 'border-white/10'} rounded-xl px-4 py-3 text-white cursor-pointer transition-all hover:bg-[#252833] shadow-lg ${(!selectedState || availableDistricts.length === 0) ? 'opacity-50 cursor-not-allowed' : ''}`}
                         >
-                            {availableDistricts.map(d => <option key={d} value={d}>{d}</option>)}
-                        </select>
+                            <span className="text-sm md:text-base font-medium truncate">
+                                {selectedDistrict || 'Choose District'}
+                            </span>
+                            <ChevronDown className={`w-4 h-4 text-[#00FF7F] transition-transform duration-300 ${isDistrictDropdownOpen ? 'rotate-180' : ''}`} />
+                        </div>
+
+                        {isDistrictDropdownOpen && (
+                            <div className="absolute top-[calc(100%+8px)] left-0 right-0 bg-[#1A1C23] border border-white/10 rounded-xl shadow-2xl z-[100] overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
+                                <div className="max-h-64 overflow-y-auto custom-scrollbar p-1">
+                                    {availableDistricts.map(d => (
+                                        <div
+                                            key={d}
+                                            onClick={() => {
+                                                setSelectedDistrict(d);
+                                                setIsDistrictDropdownOpen(false);
+                                            }}
+                                            className={`px-4 py-2.5 text-sm md:text-base rounded-lg cursor-pointer transition-colors ${selectedDistrict === d ? 'bg-[#00FF7F]/10 text-[#00FF7F]' : 'text-gray-300 hover:bg-white/5 hover:text-white'}`}
+                                        >
+                                            {d}
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>
