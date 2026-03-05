@@ -95,11 +95,21 @@ def fetch_ceda_mandi_prices(db: Optional[Session] = None, target_date: Optional[
         print(f"[CEDA API] Starting fetch for {total_commodities} commodities across {total_states} states.")
         print(f"[CEDA API] Estimated total requests: {total_commodities * total_states}")
         
+        consecutive_429s = 0
         for c_idx, (crop_name, crop_id) in enumerate(commodity_list, 1):
             print(f"\n[CEDA API] [{c_idx}/{total_commodities}] Processing Commodity: {crop_name} (ID: {crop_id})")
             
             for s_idx, (state_id, state_name) in enumerate(state_list, 1):
-                # Detailed progress log for real-time visibility in GH Actions
+                # --- CIRCUIT BREAKER ---
+                if consecutive_429s >= 3:
+                    print(f"\n[CEDA API] !!! CIRCUIT BREAKER TRIGGERED !!!")
+                    print(f"[CEDA API] Hit 429 too many times. Pausing all requests for 10 minutes to reset API cooldown...")
+                    time.sleep(600)
+                    consecutive_429s = 0
+                    # Reset session to clear any server-side session tracking
+                    session = requests.Session()
+                    session.headers.update(headers)
+
                 print(f"  > ({s_idx}/{total_states}) Fetching for {state_name}...", end=" ", flush=True)
                 
                 payload = {
@@ -111,14 +121,16 @@ def fetch_ceda_mandi_prices(db: Optional[Session] = None, target_date: Optional[
                     "to_date": to_date
                 }
                 
-                max_retries = 3
+                max_retries = 4
                 retries = 0
+                backoff_times = [60, 120, 300, 600] # Exponential backoff steps
                 
                 while retries < max_retries:
                     try:
-                        response = session.post(BASE_URL, json=payload, timeout=30)
+                        response = session.post(BASE_URL, json=payload, timeout=45)
                         
                         if response.status_code == 200:
+                            consecutive_429s = 0 # Reset on success
                             data = response.json()
                             records = data.get("output", {}).get("data", [])
                             
@@ -176,13 +188,17 @@ def fetch_ceda_mandi_prices(db: Optional[Session] = None, target_date: Optional[
                             break
                                 
                         elif response.status_code == 429:
-                            print(f"FAILED (429 Rate Limit). Retrying in 30s...")
-                            time.sleep(30)
+                            wait_time = backoff_times[retries]
+                            print(f"\n[CEDA API] FAILED (429 Rate Limit). Retry {retries+1}/{max_retries} in {wait_time}s...")
+                            time.sleep(wait_time)
                             retries += 1
+                            if retries == max_retries:
+                                consecutive_429s += 1
                             continue
                             
                         elif response.status_code == 404:
                             print("No data.")
+                            consecutive_429s = 0 # Reset on known negative response
                             break
                             
                         else:
@@ -191,18 +207,20 @@ def fetch_ceda_mandi_prices(db: Optional[Session] = None, target_date: Optional[
                             
                     except requests.exceptions.Timeout:
                         print("Timeout. Retrying...")
-                        time.sleep(10)
+                        time.sleep(15)
                         retries += 1
                     except Exception as e:
                         print(f"Error: {e}. Retrying...")
-                        time.sleep(10)
+                        time.sleep(15)
                         retries += 1
                 
-                # Faster but safe sleep between successful state requests
-                time.sleep(2.5)
+                # --- SAFER BASE SLEEP WITH JITTER ---
+                # 4s base + random jitter 0.0s to 1.5s = 4.0s to 5.5s total gap
+                safe_sleep = 4.0 + random.uniform(0.0, 1.5)
+                time.sleep(safe_sleep)
             
-            # Additional small break after completing a full commodity to let API breathe
-            time.sleep(1.0)
+            # Additional break after completing a full commodity
+            time.sleep(5.0)
 
         print(f"\n[CEDA API] Finished fetching. Total valid records batched: {len(mandi_records_batch)}")
         
