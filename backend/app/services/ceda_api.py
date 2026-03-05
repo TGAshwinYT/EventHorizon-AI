@@ -88,85 +88,105 @@ def fetch_ceda_mandi_prices(db: Optional[Session] = None, target_date: Optional[
                 for state_id, state_name in STATE_ID_TO_NAME.items():
                     print(f"[CEDA API] Fetching {crop_name} (ID: {crop_id}) for {state_name} (ID: {state_id})...")
                     
-                    # Corrected Payload names to match the API requirements
+                    # FORCE integers for IDs, and provide both date naming conventions 
+                    # just in case the API is looking for the old from_date format
                     payload = {
-                        "commodity_id": crop_id,
-                        "state_id": state_id,
+                        "commodity_id": int(crop_id),
+                        "state_id": int(state_id),
                         "start_date": from_date,
-                        "end_date": to_date
+                        "end_date": to_date,
+                        "from_date": from_date,
+                        "to_date": to_date
                     }
                     
-                    try:
-                        response = requests.post(BASE_URL, headers=headers, json=payload, timeout=30)
-                        if response.status_code == 200:
-                            data = response.json()
-                            records = data.get("output", {}).get("data", [])
-                            
-                            for record in records:
-                                district_id = record.get("census_district_id")
-                                
-                                district_name = DISTRICT_ID_TO_NAME.get(district_id, "Unknown District") if district_id else "Unknown District"
-                                market = f"{district_name} (Aggregated)" if district_name != "Unknown District" else "State Aggregated"
-                                district = district_name
-                                commodity = crop_name
-                                variety = ""
-                                
-                                raw_date = record.get("date", "")
-                                arrival_date = _format_ceda_date(raw_date)
-                                
-                                if commodity == "Paddy(Dhan)(Common)":
-                                    commodity = "Rice"
-                                    
-                                key = (state_name, district, market, commodity, arrival_date)
-                                if key in seen_keys:
-                                    continue
-                                seen_keys.add(key)
-                                
-                                try:
-                                    raw_min = record.get("min_price")
-                                    raw_max = record.get("max_price")
-                                    raw_modal = record.get("modal_price")
-
-                                    if raw_min is None or raw_max is None or raw_modal is None:
-                                        continue
-
-                                    min_price = int(float(raw_min))
-                                    max_price = int(float(raw_max))
-                                    modal_price = int(float(raw_modal))
-
-                                    if modal_price <= 0:
-                                        continue
-
-                                    mandi_records_batch.append({
-                                        "state": state_name,
-                                        "district": district,
-                                        "market": market,
-                                        "commodity": commodity,
-                                        "variety": variety,
-                                        "arrival_date": arrival_date,
-                                        "min_price": min_price,
-                                        "max_price": max_price,
-                                        "modal_price": modal_price
-                                    })
-                                except (ValueError, TypeError):
-                                    continue
-                                
-                        elif response.status_code == 429:
-                            print(f"[CEDA API] Warning: 429 Too Many Requests. Sleeping for 15 seconds...")
-                            time.sleep(15)
-                        elif response.status_code == 404:
-                            pass # No data for this specific state/crop combination, just continue
-                        else:
-                            print(f"[CEDA API] Warning: API returned status {response.status_code} for Crop {crop_id}, State {state_id}")
-                            print(f"[CEDA API] Response text: {response.text}")
-                            
-                    except requests.exceptions.Timeout:
-                        print(f"[CEDA API] Timeout fetching {crop_name}. Skipping...")
-                    except Exception as e:
-                        print(f"[CEDA API] Error fetching {crop_name}: {e}. Skipping...")
+                    # The vital retry loop for 429 Rate Limits
+                    max_retries = 3
+                    retries = 0
                     
-                    # Sleep slightly between state requests to avoid hammering the government API
-                    time.sleep(0.5)
+                    while retries < max_retries:
+                        try:
+                            response = requests.post(BASE_URL, headers=headers, json=payload, timeout=30)
+                            
+                            if response.status_code == 200:
+                                data = response.json()
+                                records = data.get("output", {}).get("data", [])
+                                
+                                for record in records:
+                                    district_id = record.get("census_district_id")
+                                    
+                                    district_name = DISTRICT_ID_TO_NAME.get(district_id, "Unknown District") if district_id else "Unknown District"
+                                    market = f"{district_name} (Aggregated)" if district_name != "Unknown District" else "State Aggregated"
+                                    district = district_name
+                                    commodity = crop_name
+                                    variety = ""
+                                    
+                                    raw_date = record.get("date", "")
+                                    arrival_date = _format_ceda_date(raw_date)
+                                    
+                                    if commodity == "Paddy(Dhan)(Common)":
+                                        commodity = "Rice"
+                                        
+                                    key = (state_name, district, market, commodity, arrival_date)
+                                    if key in seen_keys:
+                                        continue
+                                    seen_keys.add(key)
+                                    
+                                    try:
+                                        raw_min = record.get("min_price")
+                                        raw_max = record.get("max_price")
+                                        raw_modal = record.get("modal_price")
+
+                                        if raw_min is None or raw_max is None or raw_modal is None:
+                                            continue
+
+                                        min_price = int(float(raw_min))
+                                        max_price = int(float(raw_max))
+                                        modal_price = int(float(raw_modal))
+
+                                        if modal_price <= 0:
+                                            continue
+
+                                        mandi_records_batch.append({
+                                            "state": state_name,
+                                            "district": district,
+                                            "market": market,
+                                            "commodity": commodity,
+                                            "variety": variety,
+                                            "arrival_date": arrival_date,
+                                            "min_price": min_price,
+                                            "max_price": max_price,
+                                            "modal_price": modal_price
+                                        })
+                                    except (ValueError, TypeError):
+                                        continue
+                                
+                                break # Success! Break out of the retry loop.
+                                    
+                            elif response.status_code == 429:
+                                print(f"[CEDA API] Warning: 429 Too Many Requests. Sleeping for 20 seconds...")
+                                time.sleep(20)
+                                retries += 1
+                                continue # Try the exact same request again
+                                
+                            elif response.status_code == 404:
+                                break # No data for this state/crop, move on safely
+                                
+                            else:
+                                print(f"[CEDA API] Warning: API returned status {response.status_code} for Crop {crop_id}, State {state_id}")
+                                print(f"[CEDA API] Response text: {response.text}")
+                                break # Break on 400 bad request, no point retrying
+                                
+                        except requests.exceptions.Timeout:
+                            print(f"[CEDA API] Timeout fetching {crop_name}. Sleeping and retrying...")
+                            time.sleep(10)
+                            retries += 1
+                        except Exception as e:
+                            print(f"[CEDA API] Error fetching {crop_name}: {e}. Retrying...")
+                            time.sleep(10)
+                            retries += 1
+                    
+                    # Sleep slightly between successful state requests to avoid triggering the 429 limit
+                    time.sleep(1.5)
                 
             print(f"[CEDA API] Finished fetching. Total valid records batched: {len(mandi_records_batch)}")
             
@@ -380,3 +400,4 @@ def get_mandi_data_from_db(db: Session, crop: str, state: str, district: Optiona
 
 # Ensure backwards compatibility for external scripts that might import `fetch_ogd_mandi_prices`
 fetch_ogd_mandi_prices = fetch_ceda_mandi_prices
+
