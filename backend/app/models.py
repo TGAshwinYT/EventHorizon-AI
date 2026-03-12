@@ -30,7 +30,7 @@ class ChatHistory(AuthBase):
     owner = relationship("User", back_populates="chats")
 
 class MandiRate(MandiBase):
-    __tablename__ = "mandi_rates"
+    __tablename__ = "mandi_prices"
 
     id = Column(Integer, primary_key=True, index=True)
     state = Column(String, index=True)
@@ -49,5 +49,5 @@ class MandiRate(MandiBase):
 
     # Unique Constraint to prevent duplicates for the same market/commodity/date
     __table_args__ = (
-        UniqueConstraint('state', 'district', 'market', 'commodity', 'arrival_date', name='uix_mandi_rate'),
+        UniqueConstraint('state', 'district', 'market', 'commodity', 'variety', 'arrival_date', name='uix_mandi_prices'),
     )

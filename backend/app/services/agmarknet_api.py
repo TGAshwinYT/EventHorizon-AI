@@ -176,7 +176,7 @@ def fetch_agmarknet_mandi_prices(db: Optional[Session] = None, target_date: Opti
             
             try:
                 upsert_stmt = stmt.on_conflict_do_update(
-                    constraint="uix_market_commodity_date", 
+                    constraint="uix_mandi_prices", 
                     set_={
                         "min_price": stmt.excluded.min_price,
                         "max_price": stmt.excluded.max_price,
@@ -188,20 +188,8 @@ def fetch_agmarknet_mandi_prices(db: Optional[Session] = None, target_date: Opti
                 )
                 db.execute(upsert_stmt)
             except Exception as db_e:
-                print(f"[Agmarknet API] Default constraint failed: {db_e}. Falling back to 'uix_mandi_rate'...")
+                print(f"[Agmarknet API] Upsert failed: {db_e}")
                 db.rollback()
-                upsert_stmt_fallback = stmt.on_conflict_do_update(
-                    constraint="uix_mandi_rate", 
-                    set_={
-                        "min_price": stmt.excluded.min_price,
-                        "max_price": stmt.excluded.max_price,
-                        "modal_price": stmt.excluded.modal_price,
-                        "variety": stmt.excluded.variety,
-                        "updated_at": datetime.utcnow()
-                    },
-                    where=(stmt.excluded.modal_price > 0)
-                )
-                db.execute(upsert_stmt_fallback)
                 
             db.commit()
             print("[Agmarknet API] Bulk upsert successful.")
@@ -209,7 +197,7 @@ def fetch_agmarknet_mandi_prices(db: Optional[Session] = None, target_date: Opti
         from sqlalchemy import text
         print("[Agmarknet API] Executing 35-day rolling cleanup...")
         cleanup_query = text("""
-            DELETE FROM mandi_rates 
+            DELETE FROM mandi_prices 
             WHERE to_date(arrival_date, 'DD/MM/YYYY') < (CURRENT_DATE - INTERVAL '35 days')
         """)
         result = db.execute(cleanup_query)
