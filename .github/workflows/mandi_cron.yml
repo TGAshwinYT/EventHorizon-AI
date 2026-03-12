@@ -24,8 +24,11 @@ jobs:
 
       - name: Run Fetch Script
         env:
-          MANDI_DATABASE_URL: ${{ secrets.MANDI_DATABASE_URL }}
-          CEDA_API_KEY: ${{ secrets.CEDA_API_KEY }}
+          - name: Run daily Mandi data fetch
+        run: python update_mandi.py
+        env:
+          AGMARKNET_API_KEY: ${{ secrets.AGMARKNET_API_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           cd backend  # <-- This tells GitHub to open the backend folder
           python -u trigger_manual_fetch.py

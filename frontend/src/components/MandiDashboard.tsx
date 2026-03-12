@@ -1,14 +1,14 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import {
-  LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
+  LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
 import { TrendingUp, TrendingDown, Calendar, ArrowRight } from 'lucide-react';
 
 const MandiDashboard = ({ commodity = "Tomato", market = "Azadpur" }) => {
-  const [recentData, setRecentData] = useState(null);
-  const [forecastData, setForecastData] = useState([]);
+  const [recentData, setRecentData] = useState<any>(null);
+  const [forecastData, setForecastData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
 
   // Use environment variable for backend URL or fallback to localhost
   const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
@@ -37,8 +37,8 @@ const MandiDashboard = ({ commodity = "Tomato", market = "Azadpur" }) => {
         });
         
         setForecastData(forecastJson);
-      } catch (err) {
-        setError(err.message);
+      } catch (err: any) {
+        setError(err.message || "An Error Occurred");
       } finally {
         setLoading(false);
       }
@@ -68,7 +68,7 @@ const MandiDashboard = ({ commodity = "Tomato", market = "Azadpur" }) => {
   const isPositiveTrend = recentData.percent_change >= 0;
 
   // Custom Tooltip for Forecast Chart
-  const CustomForecastTooltip = ({ active, payload, label }) => {
+  const CustomForecastTooltip = ({ active, payload, label }: any) => {
     if (active && payload && payload.length) {
       const data = payload[0].payload;
       return (
@@ -185,7 +185,7 @@ const MandiDashboard = ({ commodity = "Tomato", market = "Azadpur" }) => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-800">
-                {recentData.recent_data.map((row, idx) => (
+                {recentData?.recent_data?.map((row: any, idx: number) => (
                   <tr key={idx} className="hover:bg-gray-800/40 transition-colors">
                     <td className="px-4 py-3 text-gray-300">{row.date}</td>
                     <td className="px-4 py-3 text-right text-gray-400">{row.min_price.toLocaleString()}</td>

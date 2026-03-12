@@ -21,7 +21,6 @@ const ForecastingInterface = ({ labels }: ForecastingInterfaceProps) => {
 
     // The actually submitted values for the chart to fetch
     const [submittedCrop, setSubmittedCrop] = useState('Tomato');
-    const [submittedState, setSubmittedState] = useState('Maharashtra');
 
     const crops = [
         'Tomato', 'Onion', 'Potato', 'Rice', 'Wheat', 'Cotton', 'Sugarcane',
@@ -66,7 +65,6 @@ const ForecastingInterface = ({ labels }: ForecastingInterfaceProps) => {
 
     const handleSearch = () => {
         setSubmittedCrop(crop);
-        setSubmittedState(state);
     };
 
     return (
