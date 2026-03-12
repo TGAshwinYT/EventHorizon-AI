@@ -4,7 +4,7 @@ import os
 # Ensure backend acts as module root
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
-from app.services.ceda_api import fetch_ceda_mandi_prices
+from app.services.agmarknet_api import fetch_agmarknet_mandi_prices
 from app.database import MandiSessionLocal
 from app.models import MandiRate
 

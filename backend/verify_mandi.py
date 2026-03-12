@@ -32,7 +32,7 @@ def verify_pipeline():
             "modal_price": 1500
         }
         
-        from app.services.ceda_api import process_ceda_record
+        from app.services.agmarknet_api import fetch_agmarknet_mandi_prices
         print("Inserting initial record...")
         process_ceda_record(db, test_record, "TestCrop", None)
         db.commit()

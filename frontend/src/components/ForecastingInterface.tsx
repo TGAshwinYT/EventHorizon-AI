@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { CloudRain, TrendingUp, Search } from 'lucide-react';
-import MandiForecasting from './MandiForecasting';
+import MandiDashboard from './MandiDashboard';
 import AgriWeather from './AgriWeather';
 import api from '../api';
 
@@ -148,8 +148,8 @@ const ForecastingInterface = ({ labels }: ForecastingInterfaceProps) => {
                     </div>
 
                     {/* The Chart Component */}
-                    <div className="animate-slide-up">
-                        <MandiForecasting crop={submittedCrop} state={submittedState} labels={labels} />
+                    <div className="animate-slide-up mt-8">
+                        <MandiDashboard commodity={submittedCrop} market={district === 'All Districts' ? state : district} />
                     </div>
                 </div>
             ) : (

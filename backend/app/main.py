@@ -15,7 +15,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from app.routers import chat, market, voice, auth, weather
+from app.routers import chat, market, voice, auth, weather, mandi_prices
 from app.database import auth_engine, mandi_engine, AuthBase, MandiBase
 import whisper
 
@@ -113,6 +113,7 @@ app.include_router(market.router, prefix='/api/market', tags=["Market"])
 app.include_router(voice.router, prefix='/api/voice', tags=["Voice"])
 app.include_router(auth.router, prefix='/api/auth', tags=["Auth"])
 app.include_router(weather.router, prefix='/api/weather', tags=["Weather"])
+app.include_router(mandi_prices.router, prefix='/api/mandi', tags=["Mandi"])
 
 @app.get('/')
 async def root():

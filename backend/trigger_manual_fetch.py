@@ -8,7 +8,7 @@ load_dotenv()
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, current_dir)
 
-from app.services.ceda_api import fetch_ceda_mandi_prices
+from app.services.agmarknet_api import fetch_agmarknet_mandi_prices
 from app.database import MandiSessionLocal
 
 def manual_fetch():
@@ -19,7 +19,7 @@ def manual_fetch():
     db = MandiSessionLocal()
     try:
         print(f"\n>>> Fetching for date: {today_str}")
-        fetch_ceda_mandi_prices(db=db, target_date=today_str)
+        fetch_agmarknet_mandi_prices(db=db, target_date=today_str)
             
         print("\nFetch attempt completed.")
     except Exception as e:

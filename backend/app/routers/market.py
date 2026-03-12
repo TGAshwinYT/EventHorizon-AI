@@ -35,22 +35,33 @@ async def fetch_mandi_prices_cached(crop: str, state: str, district: str = None)
     """
     def _fetch_sync():
         from app.database import MandiSessionLocal
-        # Use a localized DB session to prevent async thread context pollution
+        from sqlalchemy import text
+        from datetime import datetime
         db = MandiSessionLocal()
         try:
-            # Handle the generic commodity replacement for Paddy vs Rice
             fetch_crop = "Paddy(Dhan)(Common)" if crop == "Rice" else crop
-            query = db.query(MandiRate).filter(
-                MandiRate.state == state,
-                MandiRate.commodity == fetch_crop
-            )
             
             if district and district != "All Districts":
-                query = query.filter(MandiRate.district == district)
+                query_str = """
+                    SELECT arrival_date, min_price, max_price, modal_price 
+                    FROM mandi_prices
+                    WHERE state = :state AND commodity = :commodity AND district = :district
+                    ORDER BY arrival_date DESC
+                    LIMIT 5
+                """
+                params = {"state": state, "commodity": fetch_crop, "district": district}
+            else:
+                query_str = """
+                    SELECT arrival_date, AVG(min_price) as min_price, AVG(max_price) as max_price, AVG(modal_price) as modal_price 
+                    FROM mandi_prices
+                    WHERE state = :state AND commodity = :commodity
+                    GROUP BY arrival_date
+                    ORDER BY arrival_date DESC
+                    LIMIT 5
+                """
+                params = {"state": state, "commodity": fetch_crop}
                 
-            # O(log N) B-Tree Sort via SQL Engine (using to_date for accurate string-to-date sorting)
-            from sqlalchemy import func
-            records = query.order_by(desc(func.to_date(MandiRate.arrival_date, 'DD/MM/YYYY'))).limit(5).all()
+            records = db.execute(text(query_str), params).fetchall()
             
             if not records:
                 return {
@@ -61,53 +72,77 @@ async def fetch_mandi_prices_cached(crop: str, state: str, district: str = None)
                     "history": [],
                     "recent_data": [],
                     "min_price": "N/A",
-                    "max_price": "N/A"
+                    "max_price": "N/A",
+                    "is_historical": False,
+                    "last_updated_days_ago": 0
                 }
 
-            # Pre-allocate serialized fields
             history = []
             recent_data = []
             
-            for r in records:
-                # Format dates so UI plots correctly
-                # We format dates correctly for history graph: e.g. "12 Oct"
-                # (Assuming r.arrival_date is DD/MM/YYYY text)
-                try:
-                    from datetime import datetime
-                    d_obj = datetime.strptime(r.arrival_date, "%d/%m/%Y")
-                    d_str = d_obj.strftime("%d %b")
-                except:
-                    d_str = r.arrival_date
+            for row in records:
+                arrival_date = row[0]
+                min_price = int(round(float(row[1]))) if row[1] else 0
+                max_price = int(round(float(row[2]))) if row[2] else 0
+                modal_price = int(round(float(row[3]))) if row[3] else 0
+                
+                if hasattr(arrival_date, "strftime"):
+                    d_dt = arrival_date
+                    d_str = d_dt.strftime("%d %b")
+                elif isinstance(arrival_date, str):
+                    try:
+                        d_dt = datetime.strptime(arrival_date, "%Y-%m-%d").date()
+                        d_str = d_dt.strftime("%d %b")
+                    except ValueError:
+                        try:
+                            d_dt = datetime.strptime(arrival_date, "%d/%m/%Y").date()
+                            d_str = d_dt.strftime("%d %b")
+                        except ValueError:
+                            d_dt = datetime.now().date()
+                            d_str = arrival_date
+                else:
+                    d_dt = datetime.now().date()
+                    d_str = str(arrival_date)
                     
                 history.append({
                     "date": d_str,
-                    "price": r.modal_price,
-                    "min": r.min_price,
-                    "max": r.max_price
+                    "price": modal_price,
+                    "min": min_price,
+                    "max": max_price
                 })
                 recent_data.append({
                     "date": d_str,
-                    "min": r.min_price,
-                    "max": r.max_price,
-                    "modal": r.modal_price
+                    "min": min_price,
+                    "max": max_price,
+                    "modal": modal_price
                 })
 
-            # Grab current and prev prices for change calculations
-            current_price = records[0].modal_price
+            current_price = history[0]["price"]
             change_str = "-"
-            if len(records) > 1:
-                prev_price = records[1].modal_price
+            if len(history) > 1:
+                prev_price = history[1]["price"]
                 if prev_price > 0:
                     pct = ((current_price - prev_price) / prev_price) * 100
                     change_str = f"{pct:+.1f}%"
                     
-            all_min = min((r.min_price for r in records if r.min_price > 0), default=0)
-            all_max = max((r.max_price for r in records if r.max_price > 0), default=0)
+            all_min = min((r["min"] for r in history if r["min"] > 0), default=0)
+            all_max = max((r["max"] for r in history if r["max"] > 0), default=0)
 
-            # Calculate "Last Known Good" metadata
-            latest_record_date = records[0].arrival_date
-            latest_dt = datetime.strptime(latest_record_date, "%d/%m/%Y")
-            today_dt = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            latest_record_date = records[0][0]
+            if hasattr(latest_record_date, "strftime"):
+                latest_dt = latest_record_date
+            elif isinstance(latest_record_date, str):
+                try:
+                    latest_dt = datetime.strptime(latest_record_date, "%Y-%m-%d").date()
+                except ValueError:
+                    try:
+                        latest_dt = datetime.strptime(latest_record_date, "%d/%m/%Y").date()
+                    except ValueError:
+                        latest_dt = datetime.now().date()
+            else:
+                latest_dt = datetime.now().date()
+
+            today_dt = datetime.now().date()
             days_ago = (today_dt - latest_dt).days
             is_historical = days_ago > 0
 
@@ -116,7 +151,7 @@ async def fetch_mandi_prices_cached(crop: str, state: str, district: str = None)
                 "price_unit": "per quintal",
                 "change": change_str,
                 "market": f"{crop} - {state}{' - ' + district if district and district != 'All Districts' else ''}",
-                "history": list(reversed(history)),  # Reverse for chart x-axis chronological order
+                "history": list(reversed(history)),
                 "recent_data": recent_data,
                 "min_price": f"₹{int(all_min):,}",
                 "max_price": f"₹{int(all_max):,}",
@@ -146,12 +181,19 @@ def get_districts(
     db: Session = Depends(get_mandi_db)
 ):
     """Get distinct districts for a given crop and state"""
-    from app.models import MandiRate
-    districts = db.query(MandiRate.district).filter(
-        MandiRate.state == state,
-        MandiRate.commodity == crop
-    ).distinct().all()
-    return {"districts": sorted([d[0] for d in districts if d[0]])}
+    try:
+        from sqlalchemy import text
+        fetch_crop = "Paddy(Dhan)(Common)" if crop == "Rice" else crop
+        query = text("""
+            SELECT DISTINCT district 
+            FROM mandi_prices 
+            WHERE state = :state AND commodity = :commodity
+        """)
+        result = db.execute(query, {"state": state, "commodity": fetch_crop}).fetchall()
+        return {"districts": sorted([r[0] for r in result if r[0]])}
+    except Exception as e:
+        print(f"Error fetching districts: {e}")
+        return {"districts": []}
 
 
 @router.get('/forecast')
@@ -166,31 +208,47 @@ def get_price_forecast(
     import pandas as pd
     from prophet import Prophet
 
-    # 1. Fetch historical data for the last 35 days
-    cutoff_date = datetime.utcnow() - timedelta(days=35)
-    records = db.query(MandiRate).filter(
-        MandiRate.state == state,
-        MandiRate.commodity == crop,
-        MandiRate.modal_price != None,
-        MandiRate.updated_at >= cutoff_date
-    ).order_by(MandiRate.updated_at.asc()).all()
+    # 1. Fetch historical data for the last 35 days from mandi_prices natively
+    from sqlalchemy import text
+    query = text("""
+        SELECT arrival_date, AVG(modal_price) as modal_price
+        FROM mandi_prices
+        WHERE state = :state AND commodity = :commodity AND modal_price IS NOT NULL
+        GROUP BY arrival_date
+        ORDER BY arrival_date DESC
+        LIMIT 35
+    """)
+    records = db.execute(query, {"state": state, "commodity": crop}).fetchall()
 
     if not records:
         return []
+
+    # Reverse to chronological order for Prophet
+    records.reverse()
 
     # 2. Format into Pandas DataFrame
     data = []
     
     for r in records:
+        arrival_date = r[0]
+        modal_price = r[1]
+        
         try:
-            # Parse arrival_date "DD/MM/YYYY"
-            ds_val = datetime.strptime(r.arrival_date, "%d/%m/%Y")
-        except:
-            ds_val = r.updated_at
+            if hasattr(arrival_date, "strftime"):
+                ds_val = arrival_date
+            elif isinstance(arrival_date, str):
+                try:
+                    ds_val = datetime.strptime(arrival_date, "%Y-%m-%d")
+                except ValueError:
+                    ds_val = datetime.strptime(arrival_date, "%d/%m/%Y")
+            else:
+                ds_val = datetime.now()
+        except Exception:
+            ds_val = datetime.now()
             
         data.append({
             "ds": ds_val,
-            "y": r.modal_price
+            "y": float(modal_price)
         })
         
     df = pd.DataFrame(data)

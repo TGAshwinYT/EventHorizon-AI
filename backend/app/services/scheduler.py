@@ -1,6 +1,6 @@
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
-from app.services.ceda_api import fetch_ceda_mandi_prices
+from app.services.mandi_background_task import fetch_and_maintain_mandi_prices
 from app.database import MandiSessionLocal, AuthSessionLocal, debug_print
 from app.models import ChatHistory
 from datetime import datetime, timedelta
@@ -14,15 +14,13 @@ async def scheduled_mandi_task():
     Opens and closes a MandiSessionLocal session correctly.
     """
     debug_print("[Scheduler] Starting scheduled Mandi data fetch...")
-    db = MandiSessionLocal()
     try:
-        # Run the sync fetcher
-        fetch_ceda_mandi_prices(db=db)
+        # Run the sync fetcher in a thread
+        import asyncio
+        await asyncio.to_thread(fetch_and_maintain_mandi_prices)
         debug_print("[Scheduler] Mandi data fetch completed successfully.")
     except Exception as e:
         debug_print(f"[Scheduler] Mandi data fetch failed: {e}")
-    finally:
-        db.close()
 
 async def scheduled_cleanup_task():
     """
@@ -45,10 +43,10 @@ def start_scheduler():
     Starts the AsyncIOScheduler and schedules the cron jobs.
     """
     if not scheduler.running:
-        # Schedule Mandi Data Fetch daily at 02:00 AM
+        # Schedule Mandi Data Fetch daily at 06:00 AM (as requested)
         scheduler.add_job(
             scheduled_mandi_task, 
-            CronTrigger(hour=2, minute=0), 
+            CronTrigger(hour=6, minute=0), 
             id='mandi_daily_fetch', 
             replace_existing=True
         )
