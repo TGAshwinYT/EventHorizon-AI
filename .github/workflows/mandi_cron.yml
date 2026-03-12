@@ -22,13 +22,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt 
 
-      - name: Run Fetch Script
-        env:
-          - name: Run daily Mandi data fetch
-        run: python update_mandi.py
+      - name: Run daily Mandi data fetch
         env:
           AGMARKNET_API_KEY: ${{ secrets.AGMARKNET_API_KEY }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.MANDI_DATABASE_URL }}
         run: |
           cd backend  # <-- This tells GitHub to open the backend folder
           python -u trigger_manual_fetch.py
