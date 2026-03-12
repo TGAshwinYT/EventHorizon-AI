@@ -3,15 +3,13 @@ import {
   LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
 import { TrendingUp, TrendingDown, Calendar, ArrowRight } from 'lucide-react';
+import api from '../api';
 
-const MandiDashboard = ({ commodity = "Tomato", market = "Azadpur" }) => {
+const MandiDashboard = ({ commodity = "Tomato", market = "Azadpur" }: { commodity?: string, market?: string }) => {
   const [recentData, setRecentData] = useState<any>(null);
   const [forecastData, setForecastData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  // Use environment variable for backend URL or fallback to localhost
-  const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -19,33 +17,34 @@ const MandiDashboard = ({ commodity = "Tomato", market = "Azadpur" }) => {
       setError(null);
       try {
         // Fetch Recent Data and Percentage Change
-        const recentRes = await fetch(`${backendUrl}/api/mandi/recent?commodity=${commodity}&market=${market}`);
-        if (!recentRes.ok) throw new Error('Failed to fetch recent mandi prices');
-        const recentJson = await recentRes.json();
+        const recentRes = await api.get(`/api/mandi/recent?commodity=${encodeURIComponent(commodity)}&market=${encodeURIComponent(market)}`);
+        const recentJson = recentRes.data;
         
         // Fetch 30-day History + 5-day Forecast Data
-        const forecastRes = await fetch(`${backendUrl}/api/mandi/forecast?commodity=${commodity}&market=${market}`);
-        if (!forecastRes.ok) throw new Error('Failed to fetch mandi forecast');
-        const forecastJson = await forecastRes.json();
+        const forecastRes = await api.get(`/api/mandi/forecast?commodity=${encodeURIComponent(commodity)}&market=${encodeURIComponent(market)}`);
+        const forecastJson = forecastRes.data;
 
         // Ensure chronological order for Recharts historical area chart
-        const sortedRecentHistory = [...recentJson.recent_data].reverse();
+        const rawRecent = recentJson.recent_data || [];
+        const sortedRecentHistory = [...rawRecent].reverse();
 
         setRecentData({
           ...recentJson,
           recent_data_history: sortedRecentHistory
         });
         
-        setForecastData(forecastJson);
+        setForecastData(Array.isArray(forecastJson) ? forecastJson : []);
       } catch (err: any) {
-        setError(err.message || "An Error Occurred");
+        console.error("MandiDashboard Fetch Error:", err);
+        const errMsg = err.response?.data?.detail || err.message || "Failed to fetch market data";
+        setError(errMsg);
       } finally {
         setLoading(false);
       }
     };
 
     fetchDashboardData();
-  }, [commodity, market, backendUrl]);
+  }, [commodity, market]);
 
   if (loading) return (
     <div className="flex h-64 items-center justify-center bg-gray-900 rounded-xl border border-gray-800">
