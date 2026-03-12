@@ -1,1 +1,0 @@
-fatal: unable to access 'https://github.com/TGAshwinYT/EventHorizon-AI.git/': schannel: next InitializeSecurityContext failed: SEC_E_CERT_EXPIRED (0x80090328) - The received certificate has expired.
