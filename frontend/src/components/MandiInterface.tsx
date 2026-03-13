@@ -218,9 +218,10 @@ const MandiInterface = ({ currentLanguage }: MandiInterfaceProps) => {
     const handleSearch = async () => {
         setLoading(true);
         try {
-            // Fetch from backend
+            // Fetch from backend - added cache buster timestamp to prevent stale data
             const districtParam = district !== 'All Districts' ? `&district=${encodeURIComponent(district)}` : '';
-            const response = await api.get(`/api/market/mandi?crop=${encodeURIComponent(crop)}&state=${encodeURIComponent(state)}${districtParam}`);
+            const timestamp = Date.now();
+            const response = await api.get(`/api/market/mandi?crop=${encodeURIComponent(crop)}&state=${encodeURIComponent(state)}${districtParam}&t=${timestamp}`);
             const result = response.data;
 
             if (result) { // Assuming result will always have data if successful
