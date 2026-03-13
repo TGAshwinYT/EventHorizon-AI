@@ -144,32 +144,39 @@ def fetch_agmarknet_mandi_prices(db, target_date=None):
         return
 
     # Bulk Upsert to Neon Database
-    print("[Agmarknet API] Executing bulk upsert...")
-    try:
-        # We explicitly map ONLY the 9 columns that exist in the database table
-        insert_query = text("""
-            INSERT INTO mandi_prices (
-                state, district, market, commodity, variety, arrival_date, 
-                min_price, max_price, modal_price
-            ) VALUES (
-                :state, :district, :market, :commodity, :variety, :arrival_date, 
-                :min_price, :max_price, :modal_price
-            )
-            ON CONFLICT (state, district, market, commodity, variety, arrival_date) 
-            DO UPDATE SET 
-                min_price = EXCLUDED.min_price,
-                max_price = EXCLUDED.max_price,
-                modal_price = EXCLUDED.modal_price
-        """)
-        
-        db.execute(insert_query, valid_records)
-        db.commit()
-        print("[Agmarknet API] Bulk upsert successful.")
-        
-    except Exception as e:
-        db.rollback()
-        print(f"[Agmarknet API] Upsert failed: {e}")
-        return
+    print("[Agmarknet API] Executing bulk upsert in batches...")
+    
+    # We explicitly map ONLY the 9 columns that exist in the database table
+    insert_query = text("""
+        INSERT INTO mandi_prices (
+            state, district, market, commodity, variety, arrival_date, 
+            min_price, max_price, modal_price
+        ) VALUES (
+            :state, :district, :market, :commodity, :variety, :arrival_date, 
+            :min_price, :max_price, :modal_price
+        )
+        ON CONFLICT (state, district, market, commodity, variety, arrival_date) 
+        DO UPDATE SET 
+            min_price = EXCLUDED.min_price,
+            max_price = EXCLUDED.max_price,
+            modal_price = EXCLUDED.modal_price
+    """)
+    
+    batch_size = 500
+    total_records = len(valid_records)
+    
+    for i in range(0, total_records, batch_size):
+        batch = valid_records[i:i + batch_size]
+        try:
+            db.execute(insert_query, batch)
+            db.commit()
+            print(f"[Agmarknet API] Inserted batch of {len(batch)} records ({i + len(batch)}/{total_records})...")
+        except Exception as e:
+            db.rollback()
+            print(f"[Agmarknet API] Upsert failed on batch starting at index {i}: {e}")
+            return
+
+    print("[Agmarknet API] Bulk upsert successful.")
 
     # Keep database lean: Remove data older than 35 days
     # Exact SQL cleanup query preserved
