@@ -88,11 +88,15 @@ def fetch_agmarknet_mandi_prices(db, target_date=None):
             market = r.get('market', 'Unknown').strip()
             commodity = r.get('commodity', 'Unknown').strip()
             variety = r.get('variety', 'Other').strip()
-            arrival_date = r.get('arrival_date', '').strip()
+            arrival_date_raw = r.get('arrival_date', '').strip()
             
             # Ensure safe constraints
-            if not arrival_date:
+            if not arrival_date_raw:
                 continue
+
+            # Convert date from DD/MM/YYYY to YYYY-MM-DD for PostgreSQL
+            parsed_date = datetime.strptime(arrival_date_raw, "%d/%m/%Y")
+            arrival_date = parsed_date.strftime("%Y-%m-%d")
 
             valid_records.append({
                 "state": state,
