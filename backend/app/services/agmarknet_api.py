@@ -50,7 +50,7 @@ def fetch_agmarknet_mandi_prices(db, target_date=None):
         }
         
         try:
-            response = requests.get(AGMARKNET_URL, params=params, timeout=15)
+            response = requests.get(AGMARKNET_URL, params=params, timeout=60)
             response.raise_for_status()
             data = response.json()
             
@@ -101,7 +101,7 @@ def fetch_agmarknet_mandi_prices(db, target_date=None):
                 "commodity": commodity,
                 "variety": variety,
                 "arrival_date": arrival_date,
-                "min_price": min_price,
+                "min_price": min_p,
                 "max_price": max_p,
                 "modal_price": mod_p
             })
