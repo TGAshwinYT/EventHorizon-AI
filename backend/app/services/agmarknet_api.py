@@ -1,5 +1,7 @@
 import os
 import requests
+import time
+import concurrent.futures
 from sqlalchemy import text
 from datetime import datetime
 from dotenv import load_dotenv
@@ -18,6 +20,41 @@ COMMODITIES = [
     'Pomegranate', 'Grapes'
 ]
 
+def fetch_single_commodity(commodity, target_date, api_key, max_retries=1):
+    """
+    Fetches data for a single commodity with retry logic and a 30s timeout.
+    """
+    params = {
+        "api-key": api_key,
+        "format": "json",
+        "filters[commodity]": commodity,
+        "filters[arrival_date]": target_date,
+        "limit": 1000  # Max limit per request
+    }
+    
+    for attempt in range(max_retries + 1):
+        try:
+            response = requests.get(AGMARKNET_URL, params=params, timeout=30)
+            response.raise_for_status()
+            data = response.json()
+            records = data.get('records', [])
+            
+            if records:
+                print(f"  > [Success] Fetched {len(records)} raw records for {commodity}.")
+            else:
+                print(f"  > [Info] No records found for {commodity} today.")
+                
+            return records
+            
+        except requests.exceptions.RequestException as e:
+            if attempt < max_retries:
+                print(f"  > [Retry {attempt + 1}/{max_retries}] Timeout/Error fetching {commodity}: {e}. Retrying...")
+                time.sleep(2)  # Short delay before retrying
+            else:
+                print(f"  > [Failed] Error fetching {commodity} after {max_retries} retries: {e}")
+                
+    return []
+
 def fetch_agmarknet_mandi_prices(db, target_date=None):
     """
     Fetches daily wholesale prices from Agmarknet for major commodities.
@@ -33,38 +70,25 @@ def fetch_agmarknet_mandi_prices(db, target_date=None):
     if not target_date:
         target_date = datetime.now().strftime("%d/%m/%Y")
         
-    print(f"\n[Agmarknet API] Starting daily fetch for Date: {target_date}")
+    print(f"\n[Agmarknet API] Starting daily fetch for Date: {target_date} using ThreadPoolExecutor")
     
     all_records = []
     
-    for i, commodity in enumerate(COMMODITIES):
-        print(f"[Agmarknet API] [{i+1}/{len(COMMODITIES)}] Processing Commodity: {commodity}")
-        
-        # Build the exact query URL
-        params = {
-            "api-key": api_key,
-            "format": "json",
-            "filters[commodity]": commodity,
-            "filters[arrival_date]": target_date,
-            "limit": 1000 # Max limit per request
+    # Use ThreadPoolExecutor for parallel execution (max_workers=10)
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        # Map futures to commodities so we can track requests
+        future_to_commodity = {
+            executor.submit(fetch_single_commodity, commodity, target_date, api_key): commodity 
+            for commodity in COMMODITIES
         }
         
-        try:
-            response = requests.get(AGMARKNET_URL, params=params, timeout=60)
-            response.raise_for_status()
-            data = response.json()
-            
-            records = data.get('records', [])
-            all_records.extend(records)
-            
-            if records:
-                print(f"  > Success! Fetched {len(records)} raw records.")
-            else:
-                print(f"  > No records found for {commodity} today.")
-                
-        except requests.exceptions.RequestException as e:
-            print(f"  > Error fetching {commodity}: {e}")
-            continue
+        for future in concurrent.futures.as_completed(future_to_commodity):
+            commodity = future_to_commodity[future]
+            try:
+                records = future.result()
+                all_records.extend(records)
+            except Exception as exc:
+                print(f"  > [Exception] Unexpected error occurred while fetching {commodity}: {exc}")
 
     if not all_records:
         print("[Agmarknet API] No data fetched across any commodities. Aborting upsert.")
@@ -98,6 +122,7 @@ def fetch_agmarknet_mandi_prices(db, target_date=None):
             parsed_date = datetime.strptime(arrival_date_raw, "%d/%m/%Y")
             arrival_date = parsed_date.strftime("%Y-%m-%d")
 
+            # Strictly 9 columns, no created_at or updated_at
             valid_records.append({
                 "state": state,
                 "district": district,
@@ -147,6 +172,7 @@ def fetch_agmarknet_mandi_prices(db, target_date=None):
         return
 
     # Keep database lean: Remove data older than 35 days
+    # Exact SQL cleanup query preserved
     print("[Agmarknet API] Executing 35-day rolling cleanup...")
     try:
         cleanup_query = text("""
@@ -158,4 +184,4 @@ def fetch_agmarknet_mandi_prices(db, target_date=None):
         print("[Agmarknet API] Cleanup successful. Database optimized.")
     except Exception as e:
         db.rollback()
-        print(f"[Agmarknet API] Cleanup failed: {e}")
+        print(f"[Agmarknet API] Cleanup failed: {e}")
