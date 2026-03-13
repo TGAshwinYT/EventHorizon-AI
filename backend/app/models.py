@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Text, DateTime, Date, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.database import AuthBase, MandiBase
@@ -32,22 +32,14 @@ class ChatHistory(AuthBase):
 class MandiRate(MandiBase):
     __tablename__ = "mandi_prices"
 
-    id = Column(Integer, primary_key=True, index=True)
-    state = Column(String, index=True)
-    district = Column(String, index=True)
-    market = Column(String, index=True)
-    commodity = Column(String, index=True)
-    variety = Column(String, nullable=True)
-    arrival_date = Column(String)  # Storing as string "DD/MM/YYYY" or ISO from source
+    # Using composite primary keys as the table has exactly 9 columns and no 'id'
+    state = Column(String, primary_key=True, index=True)
+    district = Column(String, primary_key=True, index=True)
+    market = Column(String, primary_key=True, index=True)
+    commodity = Column(String, primary_key=True, index=True)
+    variety = Column(String, primary_key=True)
+    arrival_date = Column(Date, primary_key=True)  # Native PostgreSQL DATE
     
     min_price = Column(Integer)
     max_price = Column(Integer)
     modal_price = Column(Integer)
-    
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    # Unique Constraint to prevent duplicates for the same market/commodity/date
-    __table_args__ = (
-        UniqueConstraint('state', 'district', 'market', 'commodity', 'variety', 'arrival_date', name='uix_mandi_prices'),
-    )
