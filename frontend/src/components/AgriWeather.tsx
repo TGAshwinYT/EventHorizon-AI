@@ -48,16 +48,6 @@ export default function AgriWeather({ labels }: AgriWeatherProps = {}) {
     // Derived State for Available Districts
     const availableDistricts = selectedState ? indiaLocations[selectedState] || [] : [];
 
-    // Handle State Change
-    const handleStateChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        const newState = e.target.value;
-        setSelectedState(newState);
-
-        // Reset district to the first available district in the new state
-        const newDistricts = indiaLocations[newState] || [];
-        setSelectedDistrict(newDistricts.length > 0 ? newDistricts[0] : '');
-    };
-
     // Fetch Weather Data
     useEffect(() => {
         const fetchWeather = async () => {

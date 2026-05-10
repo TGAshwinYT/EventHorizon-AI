@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Sun, Cloud, CloudRain, CloudLightning, Wind, Droplets, Thermometer, Eye, Sunrise, Sunset, Gauge, ShieldAlert, Car, Flower2, Dumbbell, Bus, Palmtree, Bug, Loader2, AlertCircle } from 'lucide-react';
+import { Sun, Cloud, CloudRain, CloudLightning, Wind, Droplets, Thermometer, Eye, Sunrise, Sunset, Gauge, ShieldAlert, Car, Flower2, Dumbbell, Palmtree, Bug, Loader2, AlertCircle } from 'lucide-react';
 
 interface MobileWeatherForecastProps {
     state: string;

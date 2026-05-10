@@ -69,8 +69,6 @@ const MobileMandiForecasting = ({ crop, state }: MandiForecastingProps) => {
 
     const historyData = data.filter(d => !d.isForecast);
     const latestHistory = historyData.length > 0 ? historyData[historyData.length - 1] : null;
-    const forecastData = data.filter(d => d.isForecast);
-    const connectedForecastData = (latestHistory && forecastData.length > 0) ? [latestHistory, ...forecastData] : forecastData;
 
     const prices = data.map(d => d.price);
     const minPrice = Math.max(0, Math.min(...prices) * 0.95);
