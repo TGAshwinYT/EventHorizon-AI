@@ -1,14 +1,35 @@
 import { useState, useRef, useEffect } from 'react';
-import { motion } from 'framer-motion';
-import { Mic, MicOff, Loader2, StopCircle, Send } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Mic, MicOff, Loader2, StopCircle, Send, Wifi, WifiOff, Signal } from 'lucide-react';
+import type { NetworkQuality } from '../lib/NetworkMonitor';
+import type { PipelineStreamState } from '../hooks/useAudioPipeline';
 
 interface InteractiveAIInputProps {
     voiceStatus: 'idle' | 'listening' | 'thinking' | 'speaking';
     onMicClick: () => void;
     onSubmitText: (text: string) => void;
+    // New pipeline props
+    networkQuality?: NetworkQuality;
+    streamState?: PipelineStreamState;
+    bufferedChunks?: number;
+    waveformLevel?: number;
+    recordingDuration?: number;
+    isRecording?: boolean;
 }
 
-export default function InteractiveAIInput({ voiceStatus, onMicClick, onSubmitText }: InteractiveAIInputProps) {
+const MAX_DURATION = 30;
+
+export default function InteractiveAIInput({
+    voiceStatus,
+    onMicClick,
+    onSubmitText,
+    networkQuality = 'good',
+    streamState = 'idle',
+    bufferedChunks = 0,
+    waveformLevel = 0,
+    recordingDuration = 0,
+    isRecording = false,
+}: InteractiveAIInputProps) {
     const [isExpanded, setIsExpanded] = useState(false);
     const [text, setText] = useState('');
     const containerRef = useRef<HTMLDivElement>(null);
@@ -50,10 +71,30 @@ export default function InteractiveAIInput({ voiceStatus, onMicClick, onSubmitTe
             setText('');
             setIsExpanded(false);
         } else {
-            // Otherwise act as the Microphone button
             onMicClick();
         }
     };
+
+    // Network quality badge config
+    const getNetworkBadge = () => {
+        switch (networkQuality) {
+            case 'offline':
+                return { color: '#ef4444', label: '⚠', Icon: WifiOff };
+            case '2g':
+                return { color: '#f59e0b', label: '2G', Icon: Signal };
+            case '3g':
+                return { color: '#22c55e', label: '3G', Icon: Signal };
+            case 'good':
+                return { color: '#10b981', label: '✓', Icon: Wifi };
+        }
+    };
+
+    const badge = getNetworkBadge();
+    const remainingSeconds = MAX_DURATION - recordingDuration;
+    const showRecordingState = isRecording || voiceStatus === 'listening';
+
+    // Waveform bars for the recording state
+    const waveformBars = [0.5, 0.8, 1.0, 0.8, 0.5];
 
     return (
         <div className="absolute bottom-12 right-0 z-50 flex justify-end items-center h-16" ref={containerRef}>
@@ -74,6 +115,61 @@ export default function InteractiveAIInput({ voiceStatus, onMicClick, onSubmitTe
                     : 'bg-white/5 text-white backdrop-blur-xl border-y border-l border-white/10 hover:bg-white/10'
                     }`}
             >
+                {/* Network quality badge — shown when not expanded */}
+                {!isExpanded && (
+                    <motion.div
+                        className="absolute top-1 left-1 flex items-center justify-center rounded-full text-[8px] font-bold z-20"
+                        style={{
+                            width: 16,
+                            height: 16,
+                            backgroundColor: badge.color,
+                            color: '#fff',
+                            boxShadow: `0 0 4px ${badge.color}`,
+                        }}
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        transition={{ type: 'spring', stiffness: 400, damping: 20 }}
+                    >
+                        {badge.label}
+                    </motion.div>
+                )}
+
+                {/* Buffered chunks badge — shown when buffering */}
+                <AnimatePresence>
+                    {bufferedChunks > 0 && !isExpanded && (
+                        <motion.div
+                            className="absolute bottom-1 left-1 flex items-center justify-center rounded-full bg-amber-500 text-white text-[8px] font-bold z-20"
+                            style={{
+                                width: 16,
+                                height: 16,
+                                boxShadow: '0 0 6px rgba(245,158,11,0.5)',
+                            }}
+                            initial={{ scale: 0 }}
+                            animate={{ scale: [1, 1.2, 1] }}
+                            exit={{ scale: 0 }}
+                        >
+                            {bufferedChunks}
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
+                {/* Recording duration countdown */}
+                <AnimatePresence>
+                    {showRecordingState && !isExpanded && (
+                        <motion.div
+                            className="absolute -top-6 right-0 w-[72px] text-center text-[10px] font-mono tabular-nums"
+                            initial={{ opacity: 0, y: 4 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: 4 }}
+                            style={{
+                                color: remainingSeconds <= 5 ? '#ef4444' : 'rgba(255,255,255,0.5)',
+                            }}
+                        >
+                            {remainingSeconds}s
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+
                 {isExpanded && (
                     <motion.input
                         initial={{ opacity: 0 }}
@@ -92,14 +188,15 @@ export default function InteractiveAIInput({ voiceStatus, onMicClick, onSubmitTe
                 <motion.button
                     layout="position"
                     onClick={handleMicClick}
-                    className={`h-16 shrink-0 flex items-center justify-center transition-colors absolute right-0 top-0 bottom-0 ${voiceStatus === 'listening' ? 'bg-red-500 text-white shadow-[0_0_20px_rgba(239,68,68,0.5)]' :
+                    className={`h-16 shrink-0 flex items-center justify-center transition-colors absolute right-0 top-0 bottom-0 ${voiceStatus === 'listening' || isRecording ? 'bg-red-500 text-white shadow-[0_0_20px_rgba(239,68,68,0.5)]' :
                         voiceStatus === 'thinking' ? 'bg-purple-600 text-white shadow-[0_0_20px_rgba(147,51,234,0.5)]' :
                             voiceStatus === 'speaking' ? 'bg-cyan-500 text-white shadow-[0_0_20px_rgba(6,182,212,0.5)]' :
-                                isExpanded ? 'bg-transparent text-slate-900 hover:bg-slate-300' :
-                                    'bg-transparent text-white'
+                                streamState === 'buffering' ? 'bg-amber-500 text-white shadow-[0_0_20px_rgba(245,158,11,0.5)]' :
+                                    isExpanded ? 'bg-transparent text-slate-900 hover:bg-slate-300' :
+                                        'bg-transparent text-white'
                         } ${isExpanded ? 'rounded-r-full w-16' : 'rounded-r-none w-[72px]'}`}
                 >
-                    {voiceStatus === 'idle' && (
+                    {voiceStatus === 'idle' && !isRecording && (
                         text.trim().length > 0 ? (
                             <Send
                                 className="w-6 h-6 text-emerald-600 transition-transform hover:scale-110 hover:-translate-y-1 hover:translate-x-1"
@@ -112,7 +209,22 @@ export default function InteractiveAIInput({ voiceStatus, onMicClick, onSubmitTe
                             />
                         )
                     )}
-                    {voiceStatus === 'listening' && <MicOff className="w-6 h-6 animate-pulse" fill="currentColor" />}
+                    {/* Waveform bars when recording via pipeline */}
+                    {isRecording && voiceStatus === 'idle' && (
+                        <div className="flex items-center justify-center gap-[2px]">
+                            {waveformBars.map((multiplier, i) => (
+                                <motion.div
+                                    key={i}
+                                    className="w-[3px] rounded-full bg-white"
+                                    animate={{
+                                        height: 6 + waveformLevel * multiplier * 30,
+                                    }}
+                                    transition={{ duration: 0.1, ease: 'easeOut' }}
+                                />
+                            ))}
+                        </div>
+                    )}
+                    {(voiceStatus === 'listening' && !isRecording) && <MicOff className="w-6 h-6 animate-pulse" fill="currentColor" />}
                     {voiceStatus === 'thinking' && <Loader2 className="w-6 h-6 animate-spin" />}
                     {voiceStatus === 'speaking' && <StopCircle className="w-6 h-6" fill="currentColor" />}
                 </motion.button>

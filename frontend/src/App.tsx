@@ -1,15 +1,16 @@
 import { useState, useEffect, useRef } from 'react';
-import api from './api';
 import Sidebar from './components/Sidebar';
 import LanguageSelector from './components/LanguageSelector';
 
 import MarketDashboard from './components/MarketDashboard';
 import SkillsDashboard from './components/SkillsDashboard';
 import Settings from './components/Settings';
+import VisualScanner from './components/VisualScanner';
 import Auth from './components/Auth';
 import { AlertCircle } from 'lucide-react';
 import ChatBox from './components/ChatBox';
 import InteractiveAIInput from './components/InteractiveAIInput';
+import { useAudioPipeline } from './hooks/useAudioPipeline';
 
 interface Message {
     id: string;
@@ -27,6 +28,7 @@ function App() {
     const [token, setToken] = useState<string | null>(sessionStorage.getItem('token'));
     const [username, setUsername] = useState<string | null>(sessionStorage.getItem('username'));
     const [displayName, setDisplayName] = useState<string | null>(sessionStorage.getItem('display_name'));
+    const [avatarUrl, setAvatarUrl] = useState<string | null>(sessionStorage.getItem('avatar_url'));
 
     const [voiceStatus, setVoiceStatus] = useState<'idle' | 'listening' | 'thinking' | 'speaking'>('idle');
 
@@ -37,14 +39,12 @@ function App() {
         localStorage.setItem('language', language);
     }, [language]);
     const [connectionError, setConnectionError] = useState(false);
-    const [activeTab, setActiveTab] = useState<'home' | 'agriculture' | 'skills' | 'settings'>('home');
+    const [activeTab, setActiveTab] = useState<'home' | 'agriculture' | 'scanner' | 'skills' | 'settings'>('home');
 
     const [courses, setCourses] = useState<any[]>([]);
     const [messages, setMessages] = useState<Message[]>([]);
     const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(true);
 
-    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-    const audioChunksRef = useRef<Blob[]>([]);
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -53,11 +53,13 @@ function App() {
         const storedToken = sessionStorage.getItem('token');
         const storedUser = sessionStorage.getItem('username');
         const storedDisplayName = sessionStorage.getItem('display_name');
+        const storedAvatarUrl = sessionStorage.getItem('avatar_url');
 
         if (storedToken) {
             setToken(storedToken);
             setUsername(storedUser);
             setDisplayName(storedDisplayName);
+            setAvatarUrl(storedAvatarUrl);
         }
 
         // Migration/Cleanup: Remove legacy auth data from localStorage
@@ -79,10 +81,14 @@ function App() {
             setIsLoadingHistory(true);
 
             // Fetch History asynchronously
-            api.get('/api/chat/history', { headers })
+            fetch('/api/chat/history', { headers })
                 .then(res => {
-                    if (Array.isArray(res.data)) {
-                        const parsedHistory = res.data.map((msg: any) => ({
+                    if (res.status === 401) throw new Error("Unauthorized");
+                    return res.json();
+                })
+                .then(historyJson => {
+                    if (Array.isArray(historyJson)) {
+                        const parsedHistory = historyJson.map((msg: any) => ({
                             ...msg,
                             timestamp: new Date(msg.timestamp)
                         }));
@@ -90,7 +96,7 @@ function App() {
                     }
                 })
                 .catch(err => {
-                    if (err.response?.status === 401) {
+                    if (err.message === "Unauthorized") {
                         console.log("Token expired. Logging out.");
                         handleLogout();
                     } else {
@@ -100,19 +106,28 @@ function App() {
                 .finally(() => setIsLoadingHistory(false));
 
             // Fetch Profile asynchronously
-            api.get('/api/auth/profile', { headers })
-                .then(res => {
-                    const profileJson = res.data;
+            fetch('/api/auth/profile', { headers })
+                .then(res => res.json())
+                .then(profileJson => {
                     if (profileJson.display_name) {
                         setDisplayName(profileJson.display_name);
                         sessionStorage.setItem('display_name', profileJson.display_name);
+                    }
+                    if (profileJson.avatar_url) {
+                        setAvatarUrl(profileJson.avatar_url);
+                        try {
+                            sessionStorage.setItem('avatar_url', profileJson.avatar_url);
+                        } catch (e) {
+                            // Silently handle quota exceeded for large avatar images
+                        }
                     }
                 })
                 .catch(err => console.error("Failed to fetch profile:", err));
 
             // Fetch Courses asynchronously
-            api.get(`/api/market/courses?language=${language}`)
-                .then(res => setCourses(res.data))
+            fetch(`/api/market/courses?language=${language}`)
+                .then(res => res.json())
+                .then(coursesJson => setCourses(coursesJson))
                 .catch(err => console.error("Failed to fetch courses:", err));
         };
         fetchData();
@@ -137,16 +152,18 @@ function App() {
         sessionStorage.removeItem('token');
         sessionStorage.removeItem('username');
         sessionStorage.removeItem('display_name');
+        sessionStorage.removeItem('avatar_url');
         setToken(null);
         setUsername(null);
         setDisplayName(null);
+        setAvatarUrl(null);
         setMessages([]);
     };
 
     // Localization for UI status messages & Navigation
     const uiStrings: { [key: string]: any } = {
         en: {
-            listening: 'Listening...', thinking: 'Thinking...', speaking: 'Speaking...', tapToSpeak: 'Tap the Orb to Speak', tapToStop: 'Tap to Stop',
+            listening: 'Listening...', thinking: 'Thinking...', speaking: 'Speaking...', tapToSpeak: 'Tap the Orb to Speak', tapToStop: 'Tap to Stop', scanner: 'Scan',
             home: 'Home', agriculture: 'Agriculture', skills: 'Skills', settings: 'Settings',
             marketHeader: 'Market Intelligence', skillsHeader: 'Agricultural Education',
             rates: 'Mandi Rates', vehicles: 'Agriculture Vehicles', schemes: 'Govt Schemes', marketing: 'Marketing & Success', advice: 'Cultivation Advice',
@@ -160,7 +177,7 @@ function App() {
             historicalHistory: 'Historical Data', aiPrediction: 'AI Prediction', todayStr: 'Today'
         },
         hi: {
-            listening: 'सुन रहा हूँ...', thinking: 'सोच रहा हूँ...', speaking: 'बोल रहा हूँ...', tapToSpeak: 'बोलने के लिए टैप करें', tapToStop: 'रोकने के लिए टैप करें',
+            listening: 'सुन रहा हूँ...', thinking: 'सोच रहा हूँ...', speaking: 'बोल रहा हूँ...', tapToSpeak: 'बोलने के लिए टैप करें', tapToStop: 'रोकने के लिए टैप करें', scanner: 'स्कैन',
             home: 'होम', agriculture: 'कृषि', skills: 'कौशल', settings: 'सेटिंग्स',
             marketHeader: 'बाजार जानकारी', skillsHeader: 'कृषि शिक्षा',
             rates: 'मंडी भाव', vehicles: 'कृषि वाहन', schemes: 'सरकारी योजनाएं', marketing: 'विपणन और सफलता', advice: 'खेती की सलाह',
@@ -174,7 +191,7 @@ function App() {
             historicalHistory: 'ऐतिहासिक डेटा', aiPrediction: 'AI भविष्यवाणी', todayStr: 'आज'
         },
         bn: {
-            listening: 'শুনছি...', speaking: 'বলছি...', tapToSpeak: 'বলার জন্য ট্যাপ করুন', tapToStop: 'থামাতে ট্যাপ করুন',
+            listening: 'শুনছি...', speaking: 'বলছি...', tapToSpeak: 'বলার জন্য ট্যাপ করুন', tapToStop: 'থামাতে ট্যাপ করুন', scanner: 'স্ক্যান',
             home: 'হোম', agriculture: 'কৃষি', skills: 'দক্ষতা', settings: 'সেটিংস',
             marketHeader: 'বাজার তথ্য', skillsHeader: 'কৃষি শিক্ষা',
             rates: 'বাজার দর', vehicles: 'কৃষি যানবাহন', schemes: 'সরকারি প্রকল্প', marketing: 'বিপণন ও সাফল্য', advice: 'চাষের পরামর্শ',
@@ -189,7 +206,7 @@ function App() {
 
         },
         te: {
-            listening: 'వింటున్నాను...', speaking: 'మాట్లాడుతున్నాను...', tapToSpeak: 'మాట్లాడటానికి నొక్కండి', tapToStop: 'ఆపడానికి నొక్కండి',
+            listening: 'వింటున్నాను...', speaking: 'మాట్లాడుతున్నాను...', tapToSpeak: 'మాట్లాడటానికి నొక్కండి', tapToStop: 'ఆపడానికి నొక్కండి', scanner: 'స్కాన్',
             home: 'హోమ్', agriculture: 'వ్యవసాయం', skills: 'నైపుణ్యాలు', settings: 'సెట్టింగ్లు',
             marketHeader: 'మార్కెట్ సమాచారం', skillsHeader: 'వ్యవసాయ విద్య',
             rates: 'మార్కెట్ రేట్లు', vehicles: 'వ్యవసాయ వాహనాలు', schemes: 'ప్రభుత్వ పథకాలు', marketing: 'మార్కెటింగ్ & విజయం', advice: 'సాగు సలహా',
@@ -203,7 +220,7 @@ function App() {
             historicalHistory: 'చారిత్రక డేటా', aiPrediction: 'AI అంచనా', todayStr: 'ఈరోజు'
         },
         mr: {
-            listening: 'ऐकत आहे...', speaking: 'बोलत आहे...', tapToSpeak: 'बोलण्यासाठी टॅप करा', tapToStop: 'थांबवण्यासाठी टॅप करा',
+            listening: 'ऐकत आहे...', speaking: 'बोलत आहे...', tapToSpeak: 'बोलण्यासाठी टॅप करा', tapToStop: 'थांबवण्यासाठी टॅप करा', scanner: 'स्कॅन',
             home: 'होम', agriculture: 'शेती', skills: 'कौशल्य', settings: 'सेटिंग्ज',
             marketHeader: 'बाजार माहिती', skillsHeader: 'कृषी शिक्षण',
             rates: 'बाजार भाव', vehicles: 'कृषी वाहने', schemes: 'सरकारी योजना', marketing: 'विपणन आणि यश', advice: 'शेती सल्ला',
@@ -217,7 +234,7 @@ function App() {
             historicalHistory: 'ऐतिहासिक डेटा', aiPrediction: 'AI अंदाज', todayStr: 'आज'
         },
         ta: {
-            listening: 'கேட்கிறேன்...', speaking: 'பேசுகிறேன்...', tapToSpeak: 'பேச தட்டவும்', tapToStop: 'நிறுத்த தட்டவும்',
+            listening: 'கேட்கிறேன்...', speaking: 'பேசுகிறேன்...', tapToSpeak: 'பேச தட்டவும்', tapToStop: 'நிறுத்த தட்டவும்', scanner: 'ஸ்கேன்',
             home: 'முகப்பு', agriculture: 'விவசாயம்', skills: 'திறன்கள்', settings: 'அமைப்புகள்',
             marketHeader: 'சந்தை நுண்ணறிவு', skillsHeader: 'விவசாய கல்வி',
             rates: 'சந்தை நிலவரம்', vehicles: 'விவசாய வாகனங்கள்', schemes: 'அரசு திட்டங்கள்', marketing: 'சந்தைப்படுத்தல்', advice: 'விவசாய ஆலோசனை',
@@ -231,7 +248,7 @@ function App() {
             historicalHistory: 'வரலாற்று தரவு', aiPrediction: 'AI முன்கணிப்பு', todayStr: 'இன்று'
         },
         gu: {
-            listening: 'સાંભળી રહ્યો છું...', speaking: 'બોલી રહ્યો છું...', tapToSpeak: 'બોલવા માટે ટેપ કરો', tapToStop: 'અટકાવવા માટે ટેપ કરો',
+            listening: 'સાંભળી રહ્યો છું...', speaking: 'બોલી રહ્યો છું...', tapToSpeak: 'બોલવા માટે ટેપ કરો', tapToStop: 'અટકાવવા માટે ટેપ કરો', scanner: 'સ્કેન',
             home: 'હોમ', agriculture: 'કૃષિ', skills: 'કૌશલ્ય', settings: 'સેટિંગ્સ',
             marketHeader: 'બજાર માહિતી', skillsHeader: 'કૃષિ શિક્ષણ',
             rates: 'બજાર ભાવ', vehicles: 'કૃષિ વાહનો', schemes: 'સરકારી યોજનાઓ', marketing: 'માર્કેટિંગ અને સફળતા', advice: 'ખેતી સલાહ',
@@ -245,7 +262,7 @@ function App() {
             historicalHistory: 'ઐતિહાસિક ડેટા', aiPrediction: 'AI આગાહી', todayStr: 'આજે'
         },
         kn: {
-            listening: 'ಕೇಳಿಸಿಕೊಳ್ಳುತ್ತಿದ್ದೇನೆ...', speaking: 'ಮಾತನಾಡುತ್ತಿದ್ದೇನೆ...', tapToSpeak: 'ಮಾತನಾಡಲು ಟ್ಯಾಪ್ ಮಾಡಿ', tapToStop: 'ನಿಲ್ಲಿಸಲು ಟ್ಯಾಪ್ ಮಾಡಿ',
+            listening: 'ಕೇಳಿಸಿಕೊಳ್ಳುತ್ತಿದ್ದೇನೆ...', speaking: 'ಮಾತನಾಡುತ್ತಿದ್ದೇನೆ...', tapToSpeak: 'ಮಾತನಾಡಲು ಟ್ಯಾಪ್ ಮಾಡಿ', tapToStop: 'ನಿಲ್ಲಿಸಲು ಟ್ಯಾಪ್ ಮಾಡಿ', scanner: 'ಸ್ಕ್ಯಾನ್',
             home: 'ಹೋಮ್', agriculture: 'ಕೃಷಿ', skills: 'ಕೌಶಲ್ಯ', settings: 'ಸೆಟ್ಟಿಂಗ್ಸ್',
             marketHeader: 'ಮಾರುಕಟ್ಟೆ ಮಾಹಿತಿ', skillsHeader: 'ಕೃಷಿ ಶಿಕ್ಷಣ',
             rates: 'ಮಾರುಕಟ್ಟೆ ದರ', vehicles: 'ಕೃಷಿ ವಾಹನಗಳು', schemes: 'ಸರ್ಕಾರಿ ಯೋಜನೆ', marketing: 'ಮಾರ್ಕೆಟಿಂಗ್ ಮತ್ತು ಯಶಸ್ಸು', advice: 'ಕೃಷಿ ಸಲಹೆ',
@@ -260,7 +277,7 @@ function App() {
         },
         ml: {
             listening: 'കേൾക്കുന്നു...', speaking: 'സംസാരിക്കുന്നു...', tapToSpeak: 'സംസാരിക്കാൻ ടാപ്പ് ചെയ്യുക', tapToStop: 'നിർത്താൻ ടാಪ್ ചെയ്യുക',
-            home: 'ഹോം', agriculture: 'കൃഷി', skills: 'നൈപുണ്യം', settings: 'ക്രമീകരണങ്ങൾ',
+            home: 'ഹോം', agriculture: 'കൃഷി', scanner: 'സ്കാൻ', skills: 'നൈപുണ്യം', settings: 'ക്രമീകരണങ്ങൾ',
             marketHeader: 'വിപണി വിവരങ്ങൾ', skillsHeader: 'കാർഷിക വിദ്യാഭ്യാസം',
             rates: 'വിപണി നിരക്കുകൾ', vehicles: 'കാർഷിക വാഹനങ്ങൾ', schemes: 'സർക്കാർ പദ്ധതികൾ', marketing: 'മാർക്കറ്റിംഗ് & വിജയം', advice: 'കൃഷി ഉപദേശം',
             ratesDesc: 'നിങ്ങളുടെ വിപണിയിലെ വിളകളുടെ പ്രതിദിന വിലകൾ പരിശോധിക്കുക.', vehiclesDesc: 'ട്രാക്ടറുകൾ, കൊയ്ത്തുയന്ത്രങ്ങൾ, ഗതാഗത വാഹനങ്ങൾ എന്നിവയുടെ വിലകൾ.', schemesDesc: 'സബ്സിഡികൾക്കും വായ്പകൾക്കുമുള്ള കേന്ദ്ര-സംസ്ഥാന പദ്ധതികൾ.', marketingDesc: 'വിജയഗാഥകൾ, ബ്ലോഗർമാർ, വിൽപ്പന തന്ത്രങ്ങൾ.', forecastingDesc: 'വിള വിപണി വിലകൾക്കുള്ള 7 ദിവസത്തെ AI പ്രവചനങ്ങൾ.', forecasting: 'പ്രവചനം',
@@ -293,6 +310,26 @@ function App() {
         return true;
     };
 
+    // --- Audio Pipeline (Opus @ 12kbps, WebSocket streaming with fallback) ---
+    const audioPipeline = useAudioPipeline({
+        token: token ?? undefined,
+        useFallback: true, // Use FormData fallback until WS backend is ready
+    });
+
+    // When pipeline finishes recording in fallback mode, send the blob
+    useEffect(() => {
+        if (!audioPipeline.isRecording && voiceStatus === 'listening') {
+            const blob = audioPipeline.getRecordedBlob();
+            console.log("[App] Recording stopped. Blob size:", blob?.size);
+            if (blob && blob.size > 0) {
+                handleChat(null, blob);
+            } else {
+                console.warn("[App] No audio blob generated or size is 0.");
+                setVoiceStatus('idle');
+            }
+        }
+    }, [audioPipeline.isRecording, voiceStatus, audioPipeline]);
+
     const handleMicClick = () => {
         // If AI is speaking/thinking, STOP it immediately.
         if (voiceStatus === 'speaking' || voiceStatus === 'thinking' || window.speechSynthesis.speaking) {
@@ -304,50 +341,19 @@ function App() {
             return;
         }
 
-        if (voiceStatus === 'listening') {
-            stopRecording();
+        if (voiceStatus === 'listening' || audioPipeline.isRecording) {
+            audioPipeline.stopRecording();
             return;
         }
 
-        startRecording();
-    };
-
-    const startRecording = async () => {
-        // Double check lock
-        if (voiceStatus !== 'idle') return;
-
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            const mediaRecorder = new MediaRecorder(stream);
-            mediaRecorderRef.current = mediaRecorder;
-            audioChunksRef.current = [];
-
-            mediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0) {
-                    audioChunksRef.current.push(event.data);
-                }
-            };
-
-            mediaRecorder.onstop = () => {
-                const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-                handleChat(null, audioBlob);
-            };
-
-            mediaRecorder.start();
-            setVoiceStatus('listening');
-
-            console.log("Recording started...");
-        } catch (err) {
-            console.error("Mic access denied:", err);
-            alert("Microphone access is required for voice communication.");
-        }
-    };
-
-    const stopRecording = () => {
-        if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-            mediaRecorderRef.current.stop();
-            mediaRecorderRef.current.stream.getTracks().forEach(track => track.stop());
-            console.log("Recording stopped.");
+        // Start recording via pipeline
+        if (voiceStatus === 'idle') {
+            audioPipeline.startRecording().then(() => {
+                setVoiceStatus('listening');
+            }).catch((err) => {
+                console.error('Mic access denied:', err);
+                alert('Microphone access is required for voice communication.');
+            });
         }
     };
 
@@ -394,16 +400,18 @@ function App() {
         const ttsLang = overrideLanguage || language;
 
         try {
-            const ttsResponse = await api.post('/api/chat/tts', {
-                text: text,
-                language: ttsLang
-            }, {
-                headers: token ? { 'Authorization': `Bearer ${token}` } : {},
+            const ttsResponse = await fetch('/api/chat/tts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
+                body: JSON.stringify({
+                    text: text,
+                    language: ttsLang
+                }),
                 signal: signal
             });
 
-            if (ttsResponse.status === 200) {
-                const ttsData = ttsResponse.data;
+            if (ttsResponse.ok) {
+                const ttsData = await ttsResponse.json();
                 if (ttsData.audio_url) {
                     playAudioResponse(ttsData.audio_url);
                 } else {
@@ -424,32 +432,36 @@ function App() {
 
     const deleteMessage = async (id: string) => {
         try {
-            await api.delete(`/api/chat/history/${id}`, {
+            const res = await fetch(`/api/chat/history/${id}`, {
+                method: 'DELETE',
                 headers: token ? { 'Authorization': `Bearer ${token}` } : undefined
             });
 
-            setMessages(prev => prev.filter(m => m.id !== id));
-        } catch (err: any) {
-            if (err.response?.status === 401) {
+            if (res.status === 401) {
                 handleLogout();
                 return;
             }
+
+            setMessages(prev => prev.filter(m => m.id !== id));
+        } catch (err) {
             console.error("Failed to delete message", err);
         }
     };
 
     const clearHistory = async () => {
         try {
-            await api.delete(`/api/chat/history`, {
+            const res = await fetch(`/api/chat/history`, {
+                method: 'DELETE',
                 headers: token ? { 'Authorization': `Bearer ${token}` } : undefined
             });
 
-            setMessages([]);
-        } catch (err: any) {
-            if (err.response?.status === 401) {
+            if (res.status === 401) {
                 handleLogout();
                 return;
             }
+
+            setMessages([]);
+        } catch (err) {
             console.error("Failed to clear history", err);
         }
     };
@@ -466,11 +478,6 @@ function App() {
         try {
             const formData = new FormData();
             if (audioBlob) {
-                // Prevent overlapping requests if already speaking/thinking
-                if (voiceStatus === 'speaking' || voiceStatus === 'thinking' || window.speechSynthesis.speaking) {
-                    console.log("Ignored input while speaking");
-                    return;
-                }
                 formData.append('audio', audioBlob, 'input.webm');
             } else if (text) {
                 formData.append('message', text);
@@ -480,19 +487,26 @@ function App() {
             // Optimization: Don't request audio yet. Get text first.
             formData.append('voice_enabled', 'false');
 
-            const reqHeaders: Record<string, string> = {
-                'Content-Type': 'multipart/form-data'
-            };
+            const headers: HeadersInit = {};
             if (token) {
-                reqHeaders['Authorization'] = `Bearer ${token}`;
+                headers['Authorization'] = `Bearer ${token}`;
             }
 
-            const response = await api.post('/api/chat', formData, {
-                headers: reqHeaders,
+            const response = await fetch('/api/chat', {
+                method: 'POST',
+                headers: token ? { 'Authorization': `Bearer ${token}` } : undefined,
+                body: formData,
                 signal: signal
             });
 
-            const data = response.data;
+            if (response.status === 401) {
+                handleLogout();
+                return;
+            }
+
+            if (!response.ok) throw new Error("Server error");
+
+            const data = await response.json();
 
             // Add messages to history IMMEDIATELY
             const userMsg: Message = {
@@ -526,12 +540,8 @@ function App() {
             }
 
         } catch (error: any) {
-            if (error.name === 'CanceledError' || error.name === 'AbortError') {
-                console.log('Chat request aborted by user');
-                return;
-            }
-            if (error.response?.status === 401) {
-                handleLogout();
+            if (error.name === 'AbortError') {
+                console.log('Chat fetch aborted by user');
                 return;
             }
             console.error("Chat Error:", error);
@@ -559,6 +569,7 @@ function App() {
                 labels={{
                     home: currentUI.home,
                     agriculture: currentUI.agriculture,
+                    scanner: currentUI.scanner || 'Scan',
                     skills: currentUI.skills,
                     settings: currentUI.settings
                 }}
@@ -627,8 +638,20 @@ function App() {
                             voiceStatus={voiceStatus}
                             onMicClick={handleMicClick}
                             onSubmitText={(text) => handleChat(text)}
+                            networkQuality={audioPipeline.networkQuality}
+                            streamState={audioPipeline.streamState}
+                            bufferedChunks={audioPipeline.bufferedChunks}
+                            waveformLevel={audioPipeline.waveformLevel}
+                            recordingDuration={audioPipeline.recordingDuration}
+                            isRecording={audioPipeline.isRecording}
                         />
                     </div>
+                ) : activeTab === 'scanner' ? (
+                    <VisualScanner
+                        language={language}
+                        token={token}
+                        onBack={() => setActiveTab('home')}
+                    />
                 ) : activeTab === 'agriculture' ? (
                     <MarketDashboard
                         onBack={() => setActiveTab('home')}
@@ -659,11 +682,20 @@ function App() {
                         onLanguageChange={setLanguage}
                         username={username}
                         displayName={displayName}
+                        avatarUrl={avatarUrl}
                         token={token}
                         onUpdateProfile={async (updates: ProfileUpdate) => {
                             if (updates.displayName !== undefined) {
                                 setDisplayName(updates.displayName);
                                 sessionStorage.setItem('display_name', updates.displayName);
+                            }
+                            if (updates.avatarUrl !== undefined) {
+                                setAvatarUrl(updates.avatarUrl);
+                                try {
+                                    sessionStorage.setItem('avatar_url', updates.avatarUrl);
+                                } catch (e) {
+                                    // Silently handle quota exceeded
+                                }
                             }
                         }}
                         onLogout={handleLogout}

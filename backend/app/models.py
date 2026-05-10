@@ -49,5 +49,5 @@ class MandiRate(MandiBase):
 
     # Unique Constraint to prevent duplicates for the same market/commodity/date
     __table_args__ = (
-        UniqueConstraint('state', 'district', 'market', 'commodity', 'variety', 'arrival_date', name='uix_mandi_prices'),
+        UniqueConstraint('state', 'district', 'market', 'commodity', 'arrival_date', name='uix_mandi_rate'),
     )

@@ -18,20 +18,22 @@ backend_process = None
 frontend_process = None
 
 def get_python_executable():
-    """Find the best python executable, preferring virtual environments."""
+    """Find the best python executable, preferring virtual environments.
+    Validates that the found executable actually works AND has fastapi installed."""
     # Possible paths for venv python on Windows and Unix
+    # Order: backend/venv first (known working), then venv_win, then others
     candidates = [
-        # backend/venv_win (Windows specific)
-        os.path.join(BACKEND_DIR, "venv_win", "Scripts", "python.exe"),
-        os.path.join(BACKEND_DIR, "venv_win", "bin", "python.exe"),
-        # backend/venv (Windows standard vs MSYS2/Posix)
-        os.path.join(BACKEND_DIR, "venv", "bin", "python.exe"),
+        # backend/venv (Windows standard — preferred)
         os.path.join(BACKEND_DIR, "venv", "Scripts", "python.exe"),
+        os.path.join(BACKEND_DIR, "venv", "bin", "python.exe"),
         os.path.join(BACKEND_DIR, "venv", "bin", "python"),
         # backend/.venv
         os.path.join(BACKEND_DIR, ".venv", "Scripts", "python.exe"),
         os.path.join(BACKEND_DIR, ".venv", "bin", "python.exe"),
         os.path.join(BACKEND_DIR, ".venv", "bin", "python"),
+        # backend/venv_win (legacy — may be broken if base Python was uninstalled)
+        os.path.join(BACKEND_DIR, "venv_win", "Scripts", "python.exe"),
+        os.path.join(BACKEND_DIR, "venv_win", "bin", "python.exe"),
         # root/venv
         os.path.join(os.path.dirname(BACKEND_DIR), "venv", "Scripts", "python.exe"),
         os.path.join(os.path.dirname(BACKEND_DIR), "venv", "bin", "python.exe"),
@@ -44,11 +46,35 @@ def get_python_executable():
     
     for candidate in candidates:
         if os.path.exists(candidate):
-            print(f"[*] Found virtual environment: {candidate}")
-            return candidate
+            # Validate 1: Can the interpreter run at all?
+            try:
+                result = subprocess.run(
+                    [candidate, "--version"],
+                    capture_output=True, timeout=5
+                )
+                if result.returncode != 0:
+                    print(f"[!] Venv found but broken (base Python missing?): {candidate}")
+                    continue
+            except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
+                print(f"[!] Venv found but cannot execute: {candidate}")
+                continue
+            
+            # Validate 2: Can it import fastapi? (the core dependency)
+            try:
+                result = subprocess.run(
+                    [candidate, "-c", "import fastapi"],
+                    capture_output=True, timeout=10
+                )
+                if result.returncode == 0:
+                    print(f"[*] Found working virtual environment: {candidate}")
+                    return candidate
+                else:
+                    print(f"[!] Venv works but missing fastapi: {candidate}")
+            except (subprocess.TimeoutExpired, OSError):
+                print(f"[!] Venv import check failed: {candidate}")
 
     # Fallback to current interpreter
-    print(f"[*] No virtual environment found. Using system: {sys.executable}")
+    print(f"[*] No working virtual environment found. Using system: {sys.executable}")
     return sys.executable
 
 def run_backend():
@@ -56,13 +82,24 @@ def run_backend():
     python_exe = get_python_executable()
     print(f"\n[BACKEND] Starting via: {python_exe}")
     
-    # Run Flask app directly
+    # Run FastAPI app via uvicorn
     cmd = [python_exe, "-m", "app.main"]
+    
+    # Build environment with proper venv activation
+    env = os.environ.copy()
+    venv_dir = os.path.dirname(os.path.dirname(python_exe))  # go up from Scripts/python.exe
+    if os.path.isdir(venv_dir):
+        env["VIRTUAL_ENV"] = venv_dir
+        # Prepend venv Scripts/bin to PATH so subprocesses find the right python
+        if sys.platform == "win32":
+            scripts_dir = os.path.join(venv_dir, "Scripts")
+        else:
+            scripts_dir = os.path.join(venv_dir, "bin")
+        env["PATH"] = scripts_dir + os.pathsep + env.get("PATH", "")
     
     try:
         # cwd=BACKEND_DIR is important so it finds 'app' module
-        # Inherit env to ensure pip-installed packages are seen
-        backend_process = subprocess.Popen(cmd, cwd=BACKEND_DIR, env=os.environ.copy())
+        backend_process = subprocess.Popen(cmd, cwd=BACKEND_DIR, env=env)
         print(f"[BACKEND] Process started with PID {backend_process.pid}")
     except Exception as e:
         print(f"[!] Failed to start backend: {e}")

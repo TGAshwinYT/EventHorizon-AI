@@ -1,6 +1,7 @@
-flask
-flask-cors
-flask-sqlalchemy
+# Root requirements — points to the actual backend requirements
+# Install with: pip install -r backend/requirements.txt
+fastapi>=0.129.0
+uvicorn>=0.41.0
 python-dotenv
 requests
 edge-tts
@@ -11,5 +12,7 @@ pydub
 pg8000
 passlib
 pyjwt
-google-generativeai
 psycopg2-binary
+python-multipart
+starlette
+SQLAlchemy

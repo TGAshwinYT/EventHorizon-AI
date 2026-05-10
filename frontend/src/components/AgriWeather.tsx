@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
-import { CloudRain, Sun, Cloud, Wind, Droplets, AlertTriangle, ChevronDown } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { CloudRain, Sun, Cloud, Wind, Droplets, AlertTriangle } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
-import api from '../api';
+import CustomSelect from './CustomSelect';
 
 interface WeatherDay {
     date: string;
@@ -20,44 +20,18 @@ interface AgriWeatherProps {
 }
 
 export default function AgriWeather({ labels }: AgriWeatherProps = {}) {
-    // 1. Data Structure for Cascading Dropdowns - All Indian States & UTs
+    // 1. Data Structure for Cascading Dropdowns
     const indiaLocations: Record<string, string[]> = {
-        'Andaman and Nicobar Islands': ['Port Blair', 'Nicobar', 'South Andaman'],
-        'Andhra Pradesh': ['Visakhapatnam', 'Vijayawada', 'Guntur', 'Nellore', 'Kurnool', 'Tirupati'],
-        'Arunachal Pradesh': ['Itanagar', 'Tawang', 'Pasighat', 'Ziro', 'Tezu'],
-        'Assam': ['Guwahati', 'Silchar', 'Dibrugarh', 'Jorhat', 'Nagaon', 'Tezpur'],
-        'Bihar': ['Patna', 'Gaya', 'Bhagalpur', 'Muzaffarpur', 'Purnia', 'Darbhanga'],
-        'Chandigarh': ['Chandigarh'],
-        'Chhattisgarh': ['Raipur', 'Bhilai', 'Bilaspur', 'Korba', 'Durg'],
-        'Dadra and Nagar Haveli and Daman and Diu': ['Daman', 'Diu', 'Silvassa'],
-        'Delhi': ['New Delhi', 'North Delhi', 'South Delhi', 'East Delhi', 'West Delhi'],
-        'Goa': ['Panaji', 'Vasco da Gama', 'Margao', 'Mapusa', 'Ponda'],
-        'Gujarat': ['Ahmedabad', 'Surat', 'Vadodara', 'Rajkot', 'Bhavnagar', 'Jamnagar'],
-        'Haryana': ['Gurugram', 'Faridabad', 'Panipat', 'Ambala', 'Rohtak', 'Hisar'],
-        'Himachal Pradesh': ['Shimla', 'Manali', 'Dharamshala', 'Mandi', 'Solan'],
-        'Jammu and Kashmir': ['Srinagar', 'Jammu', 'Anantnag', 'Baramulla', 'Kathua'],
-        'Jharkhand': ['Ranchi', 'Jamshedpur', 'Dhanbad', 'Bokaro', 'Deoghar'],
-        'Karnataka': ['Bengaluru', 'Mysuru', 'Hubballi', 'Mangaluru', 'Belagavi', 'Ballari'],
-        'Kerala': ['Thiruvananthapuram', 'Kochi', 'Kozhikode', 'Thrissur', 'Kollam', 'Kannur'],
-        'Ladakh': ['Leh', 'Kargil'],
-        'Lakshadweep': ['Kavaratti', 'Agatti', 'Minicoy'],
-        'Madhya Pradesh': ['Indore', 'Bhopal', 'Jabalpur', 'Gwalior', 'Ujjain'],
-        'Maharashtra': ['Mumbai', 'Pune', 'Nagpur', 'Nashik', 'Aurangabad', 'Solapur'],
-        'Manipur': ['Imphal', 'Churachandpur', 'Thoubal', 'Bishnupur'],
-        'Meghalaya': ['Shillong', 'Tura', 'Nongstoin', 'Jowai'],
-        'Mizoram': ['Aizawl', 'Lunglei', 'Champhai', 'Serchhip'],
-        'Nagaland': ['Kohima', 'Dimapur', 'Mokokchung', 'Tuensang'],
-        'Odisha': ['Bhubaneswar', 'Cuttack', 'Rourkela', 'Brahmapur', 'Sambalpur'],
-        'Puducherry': ['Puducherry', 'Ozhukarai', 'Karaikal', 'Mahe', 'Yanam'],
-        'Punjab': ['Ludhiana', 'Amritsar', 'Jalandhar', 'Patiala', 'Bathinda'],
-        'Rajasthan': ['Jaipur', 'Jodhpur', 'Udaipur', 'Kota', 'Ajmer', 'Bikaner'],
-        'Sikkim': ['Gangtok', 'Namchi', 'Geyzing', 'Mangan'],
-        'Tamil Nadu': ['Chennai', 'Coimbatore', 'Madurai', 'Tiruchirappalli', 'Salem', 'Erode'],
+        'Maharashtra': ['Mumbai', 'Pune', 'Nagpur', 'Nashik', 'Aurangabad'],
+        'Tamil Nadu': ['Chennai', 'Coimbatore', 'Madurai', 'Erode', 'Salem'],
+        'Bihar': ['Patna', 'Gaya', 'Bhagalpur', 'Muzaffarpur', 'Purnia'],
+        'Karnataka': ['Bengaluru', 'Mysuru', 'Hubballi', 'Mangaluru', 'Belagavi'],
+        'Kerala': ['Thiruvananthapuram', 'Kochi', 'Kozhikode', 'Thrissur', 'Kollam'],
         'Telangana': ['Hyderabad', 'Warangal', 'Nizamabad', 'Khammam', 'Karimnagar'],
-        'Tripura': ['Agartala', 'Udaipur', 'Dharmanagar', 'Kailashahar'],
-        'Uttar Pradesh': ['Lucknow', 'Kanpur', 'Agra', 'Varanasi', 'Prayagraj', 'Noida'],
-        'Uttarakhand': ['Dehradun', 'Haridwar', 'Roorkee', 'Haldwani', 'Rudrapur'],
-        'West Bengal': ['Kolkata', 'Howrah', 'Darjeeling', 'Siliguri', 'Asansol', 'Durgapur']
+        'Andhra Pradesh': ['Visakhapatnam', 'Vijayawada', 'Guntur', 'Nellore', 'Kurnool'],
+        'Gujarat': ['Ahmedabad', 'Surat', 'Vadodara', 'Rajkot', 'Bhavnagar'],
+        'Uttar Pradesh': ['Lucknow', 'Kanpur', 'Agra', 'Varanasi', 'Prayagraj'],
+        'West Bengal': ['Kolkata', 'Howrah', 'Darjeeling', 'Siliguri', 'Asansol'],
     };
 
     const states = Object.keys(indiaLocations).sort();
@@ -70,34 +44,14 @@ export default function AgriWeather({ labels }: AgriWeatherProps = {}) {
     // UI states
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const [isStateDropdownOpen, setIsStateDropdownOpen] = useState(false);
-    const [isDistrictDropdownOpen, setIsDistrictDropdownOpen] = useState(false);
-
-    // Ref for click outside detection
-    const dropdownRef = useRef<HTMLDivElement>(null);
-
-    // Close dropdowns when clicking outside
-    useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
-                setIsStateDropdownOpen(false);
-                setIsDistrictDropdownOpen(false);
-            }
-        };
-
-        document.addEventListener('mousedown', handleClickOutside);
-        return () => {
-            document.removeEventListener('mousedown', handleClickOutside);
-        };
-    }, []);
 
     // Derived State for Available Districts
     const availableDistricts = selectedState ? indiaLocations[selectedState] || [] : [];
 
     // Handle State Change
-    const handleStateChange = (newState: string) => {
+    const handleStateChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        const newState = e.target.value;
         setSelectedState(newState);
-        setIsStateDropdownOpen(false);
 
         // Reset district to the first available district in the new state
         const newDistricts = indiaLocations[newState] || [];
@@ -111,19 +65,18 @@ export default function AgriWeather({ labels }: AgriWeatherProps = {}) {
             setError(null);
 
             try {
-                const response = await api.get(`/api/weather/?state=${encodeURIComponent(selectedState)}&district=${encodeURIComponent(selectedDistrict)}`);
-                const data = response.data;
+                const response = await fetch(`/api/weather?state=${encodeURIComponent(selectedState)}&district=${encodeURIComponent(selectedDistrict)}`);
 
-                if (data.error) {
-                    setError(data.error);
-                    // Fallback to mock data if the endpoint returns an error
+                if (!response.ok) {
+                    // Fallback to mock data if the endpoint isn't ready yet
                     generateMockData();
-                } else {
-                    setWeatherForecast(data);
+                    return;
                 }
-            } catch (err: any) {
+
+                const data = await response.json();
+                setWeatherForecast(data);
+            } catch (err) {
                 console.error("Error fetching weather:", err);
-                setError(err.response?.data?.error || err.message || "Failed to fetch weather data");
                 // Fallback to mock data for demonstration purposes if backend fails
                 generateMockData();
             } finally {
@@ -182,7 +135,7 @@ export default function AgriWeather({ labels }: AgriWeatherProps = {}) {
             <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-[#00FF7F]/5 rounded-full blur-[120px] pointer-events-none -translate-y-1/2 translate-x-1/2" />
 
             {/* 2. Header & Selection UI */}
-            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end mb-8 relative z-30 gap-6">
+            <div className="flex flex-col lg:flex-row justify-between items-start lg:items-end mb-8 relative z-10 gap-6">
                 <div>
                     <h2 className="text-3xl font-bold text-[#00FF7F] mb-2 tracking-tight">{labels?.weatherAgriWeather || 'Hyper-Local Agri-Weather'}</h2>
                     <p className="text-gray-300 flex items-center gap-2">
@@ -190,76 +143,26 @@ export default function AgriWeather({ labels }: AgriWeatherProps = {}) {
                     </p>
                 </div>
 
-                <div className="flex flex-col sm:flex-row gap-4 w-full lg:w-auto" ref={dropdownRef}>
-                    {/* Custom State Dropdown */}
-                    <div className="flex flex-col gap-1 w-full sm:w-56 relative">
-                        <label className="text-xs font-semibold uppercase tracking-wider text-gray-500 ml-1 mb-1">{labels?.selectState || 'Select State'}</label>
-                        <div
-                            onClick={() => {
-                                setIsStateDropdownOpen(!isStateDropdownOpen);
-                                setIsDistrictDropdownOpen(false);
-                            }}
-                            className={`flex items-center justify-between bg-[#1A1C23] border ${isStateDropdownOpen ? 'border-[#00FF7F]' : 'border-white/10'} rounded-xl px-4 py-3 text-white cursor-pointer transition-all hover:bg-[#252833] shadow-lg group`}
-                        >
-                            <span className="text-sm md:text-base font-medium truncate">
-                                {selectedState || 'Choose State'}
-                            </span>
-                            <ChevronDown className={`w-4 h-4 text-[#00FF7F] transition-transform duration-300 ${isStateDropdownOpen ? 'rotate-180' : ''}`} />
-                        </div>
-
-                        {isStateDropdownOpen && (
-                            <div className="absolute top-[calc(100%+8px)] left-0 right-0 bg-[#1A1C23] border border-white/10 rounded-xl shadow-2xl z-[100] overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
-                                <div className="max-h-64 overflow-y-auto custom-scrollbar p-1">
-                                    {states.map(s => (
-                                        <div
-                                            key={s}
-                                            onClick={() => handleStateChange(s)}
-                                            className={`px-4 py-2.5 text-sm md:text-base rounded-lg cursor-pointer transition-colors ${selectedState === s ? 'bg-[#00FF7F]/10 text-[#00FF7F]' : 'text-gray-300 hover:bg-white/5 hover:text-white'}`}
-                                        >
-                                            {s}
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                    </div>
-
-                    {/* Custom District Dropdown */}
-                    <div className="flex flex-col gap-1 w-full sm:w-56 relative">
-                        <label className="text-xs font-semibold uppercase tracking-wider text-gray-500 ml-1 mb-1">{labels?.selectDistrict || 'Select District'}</label>
-                        <div
-                            onClick={() => {
-                                if (!selectedState || availableDistricts.length === 0) return;
-                                setIsDistrictDropdownOpen(!isDistrictDropdownOpen);
-                                setIsStateDropdownOpen(false);
-                            }}
-                            className={`flex items-center justify-between bg-[#1A1C23] border ${isDistrictDropdownOpen ? 'border-[#00FF7F]' : 'border-white/10'} rounded-xl px-4 py-3 text-white cursor-pointer transition-all hover:bg-[#252833] shadow-lg ${(!selectedState || availableDistricts.length === 0) ? 'opacity-50 cursor-not-allowed' : ''}`}
-                        >
-                            <span className="text-sm md:text-base font-medium truncate">
-                                {selectedDistrict || 'Choose District'}
-                            </span>
-                            <ChevronDown className={`w-4 h-4 text-[#00FF7F] transition-transform duration-300 ${isDistrictDropdownOpen ? 'rotate-180' : ''}`} />
-                        </div>
-
-                        {isDistrictDropdownOpen && (
-                            <div className="absolute top-[calc(100%+8px)] left-0 right-0 bg-[#1A1C23] border border-white/10 rounded-xl shadow-2xl z-[100] overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
-                                <div className="max-h-64 overflow-y-auto custom-scrollbar p-1">
-                                    {availableDistricts.map(d => (
-                                        <div
-                                            key={d}
-                                            onClick={() => {
-                                                setSelectedDistrict(d);
-                                                setIsDistrictDropdownOpen(false);
-                                            }}
-                                            className={`px-4 py-2.5 text-sm md:text-base rounded-lg cursor-pointer transition-colors ${selectedDistrict === d ? 'bg-[#00FF7F]/10 text-[#00FF7F]' : 'text-gray-300 hover:bg-white/5 hover:text-white'}`}
-                                        >
-                                            {d}
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        )}
-                    </div>
+                <div className="flex flex-col sm:flex-row gap-4 w-full lg:w-auto">
+                    <CustomSelect
+                        label={labels?.selectState || 'Select State'}
+                        value={selectedState}
+                        onChange={(val) => {
+                            setSelectedState(val);
+                            const newDistricts = indiaLocations[val] || [];
+                            setSelectedDistrict(newDistricts.length > 0 ? newDistricts[0] : '');
+                        }}
+                        options={states}
+                        accentColor="emerald"
+                    />
+                    <CustomSelect
+                        label={labels?.selectDistrict || 'Select District'}
+                        value={selectedDistrict}
+                        onChange={setSelectedDistrict}
+                        options={availableDistricts}
+                        disabled={!selectedState || availableDistricts.length === 0}
+                        accentColor="emerald"
+                    />
                 </div>
             </div>
 
@@ -279,7 +182,7 @@ export default function AgriWeather({ labels }: AgriWeatherProps = {}) {
                             Array.from({ length: 5 }).map((_, idx) => (
                                 <div
                                     key={`skeleton-${idx}`}
-                                    className="flex flex-col justify-between bg-[#1A1C23]/80 backdrop-blur-md rounded-2xl p-4 min-w-[280px] sm:min-w-[170px] lg:min-w-[180px] flex-1 border border-white/5 animate-pulse snap-center relative z-10"
+                                    className="flex flex-col justify-between bg-[#1A1C23]/80 backdrop-blur-md rounded-2xl p-4 min-w-[280px] sm:min-w-[170px] lg:min-w-[180px] flex-1 border border-white/5 animate-pulse snap-center"
                                     style={{ minHeight: '300px' }}
                                 >
                                     <h4 className="h-4 bg-white/10 rounded w-1/2 mx-auto mb-4"></h4>
@@ -307,8 +210,8 @@ export default function AgriWeather({ labels }: AgriWeatherProps = {}) {
                             weatherForecast.map((day, idx) => (
                                 <div
                                     key={idx}
-                                    className={`flex flex-col justify-between bg-[#1A1C23]/80 backdrop-blur-md rounded-2xl p-4 min-w-[280px] sm:min-w-[170px] lg:min-w-[180px] flex-1 transition-all hover:-translate-y-1 hover:shadow-[0_10px_30px_rgba(0,0,0,0.5)] snap-center relative z-10 ${day.isToday || idx === 0
-                                        ? 'border-2 border-[#00FF7F] shadow-[0_0_20px_rgba(0,255,127,0.15)] scale-105 md:scale-100'
+                                    className={`flex flex-col justify-between bg-[#1A1C23]/80 backdrop-blur-md rounded-2xl p-4 min-w-[280px] sm:min-w-[170px] lg:min-w-[180px] flex-1 transition-all hover:-translate-y-1 hover:shadow-[0_10px_30px_rgba(0,0,0,0.5)] snap-center ${day.isToday || idx === 0
+                                        ? 'border-2 border-[#00FF7F] shadow-[0_0_20px_rgba(0,255,127,0.15)] relative scale-105 md:scale-100 z-10'
                                         : 'border border-white/5'
                                         }`}
                                     style={{ minHeight: '300px' }}
@@ -326,13 +229,13 @@ export default function AgriWeather({ labels }: AgriWeatherProps = {}) {
 
                                         {/* Rain Probability Bar */}
                                         <div className="mb-6">
-                                            <div className="h-7 w-full bg-black/40 rounded-full overflow-hidden relative border border-white/5 flex items-center justify-center">
+                                            <div className="h-6 w-full bg-black/40 rounded-full overflow-hidden relative border border-white/5 flex items-center justify-center">
                                                 <div
                                                     className="absolute top-0 left-0 h-full bg-[#00FF7F] transition-all duration-1000 ease-out"
                                                     style={{ width: `${day.rainProb}%` }}
                                                 />
-                                                <span className={`relative text-[10px] font-bold z-10 ${day.rainProb >= 45 ? 'text-gray-900' : 'text-white'}`}>
-                                                    Rain: {day.rainProb}%
+                                                <span className={`relative text-xs font-bold z-10 ${day.rainProb >= 50 ? 'text-black' : 'text-gray-300'}`}>
+                                                    Rain Probability: {day.rainProb}%
                                                 </span>
                                             </div>
                                         </div>
@@ -380,7 +283,7 @@ export default function AgriWeather({ labels }: AgriWeatherProps = {}) {
                                 <span className="text-sm font-medium text-gray-300">Rainfall Trend</span>
                             </div>
 
-                            <ResponsiveContainer width="100%" height={200}>
+                            <ResponsiveContainer width="100%" height={200} minWidth={0}>
                                 <AreaChart data={weatherForecast} margin={{ top: 10, right: 10, left: 10, bottom: 0 }}>
                                     <defs>
                                         <linearGradient id="colorWind" x1="0" y1="0" x2="0" y2="1">
@@ -398,7 +301,7 @@ export default function AgriWeather({ labels }: AgriWeatherProps = {}) {
                                         tick={{ fill: '#9CA3AF', fontSize: 12 }}
                                         axisLine={false}
                                         tickLine={false}
-                                        tickFormatter={(val) => `${val} `}
+                                        tickFormatter={(val) => `${val}`}
                                     />
                                     <Tooltip
                                         contentStyle={{ backgroundColor: '#1A1C23', borderColor: '#ffffff20', borderRadius: '12px' }}

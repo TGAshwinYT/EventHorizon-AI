@@ -2,6 +2,10 @@ from fastapi import APIRouter, Query, Request, Depends
 from fastapi.responses import JSONResponse
 
 from app.database import MandiSessionLocal, get_mandi_db
+from app.cache_utils import TTLCache
+
+forecast_cache = TTLCache(ttl_seconds=10800)  # 3 hours cache
+
 
 router = APIRouter()
 
@@ -25,144 +29,298 @@ from async_lru import alru_cache
 import asyncio
 from sqlalchemy import desc
 from app.models import MandiRate
+import os
+import json
+import httpx
+from datetime import datetime
 
-@alru_cache(maxsize=256)
-async def fetch_mandi_prices_cached(crop: str, state: str, district: str = None):
-    """
-    O(log N) Database Query with O(1) In-Memory Caching:
-    Avoids fetching all records into Python for in-memory grouping/sorting.
-    Forces PostgreSQL's B-Trees to handle the sorting and returns instantly on repeated requests.
-    """
-    def _fetch_sync():
-        from app.database import MandiSessionLocal
-        from sqlalchemy import text
-        from datetime import datetime
-        db = MandiSessionLocal()
+async def fetch_datagov_prices(crop: str, state: str, district: str = None):
+    datagov_key = os.getenv("DATAGOV_API_KEY")
+    if not datagov_key:
+        return None
+        
+    commodityMap = {
+        "Tomato": "Tomato", "Onion": "Onion", "Potato": "Potato", "Cabbage": "Cabbage",
+        "Cauliflower": "Cauliflower", "Brinjal": "Brinjal", "Lady Finger (Bhindi)": "Bhindi(Ladies Finger)",
+        "Green Chilli": "Green Chilli", "Garlic": "Garlic", "Ginger": "Ginger", "Capsicum": "Capsicum",
+        "Carrot": "Carrot", "Bitter Gourd": "Bitter Gourd", "Bottle Gourd": "Bottle Gourd",
+        "Wheat": "Wheat", "Rice (Paddy)": "Rice", "Maize": "Maize", "Soybean": "Soybean",
+        "Groundnut": "Groundnut", "Banana": "Banana", "Mango": "Mango", "Turmeric": "Turmeric"
+    }
+    commodity = commodityMap.get(crop, crop)
+    
+    url = "https://api.data.gov.in/resource/9ef84268-d588-465a-a308-a864a43d0070"
+    params = {
+        "api-key": datagov_key,
+        "format": "json",
+        "limit": "10",
+        "filters[commodity]": commodity,
+        "filters[state]": state
+    }
+    if district and district != "All Districts":
+        params["filters[district]"] = district
+        
+    async with httpx.AsyncClient(timeout=10.0) as client:
         try:
-            fetch_crop = "Paddy(Dhan)(Common)" if crop == "Rice" else crop
-            
-            if district and district != "All Districts":
-                query_str = """
-                    SELECT arrival_date, min_price, max_price, modal_price 
-                    FROM mandi_prices
-                    WHERE state = :state AND commodity = :commodity AND district = :district
-                    ORDER BY arrival_date DESC
-                    LIMIT 5
-                """
-                params = {"state": state, "commodity": fetch_crop, "district": district}
-            else:
-                query_str = """
-                    SELECT arrival_date, AVG(min_price) as min_price, AVG(max_price) as max_price, AVG(modal_price) as modal_price 
-                    FROM mandi_prices
-                    WHERE state = :state AND commodity = :commodity
-                    GROUP BY arrival_date
-                    ORDER BY arrival_date DESC
-                    LIMIT 5
-                """
-                params = {"state": state, "commodity": fetch_crop}
-                
-            records = db.execute(text(query_str), params).fetchall()
-            
+            resp = await client.get(url, params=params)
+            resp.raise_for_status()
+            json_data = resp.json()
+            records = json_data.get("records", [])
             if not records:
-                return {
-                    "current_price": "N/A",
-                    "price_unit": "per quintal",
-                    "change": "-",
-                    "market": f"{crop} - {state}{' - ' + district if district and district != 'All Districts' else ''} (No Data)",
-                    "history": [],
-                    "recent_data": [],
-                    "min_price": "N/A",
-                    "max_price": "N/A",
-                    "is_historical": False,
-                    "last_updated_days_ago": 0
-                }
-
+                return None
+                
             history = []
             recent_data = []
+            parsed_records = []
+            for r in records:
+                try:
+                    d_obj = datetime.strptime(r["arrival_date"], "%d/%m/%Y")
+                    parsed_records.append((d_obj, r))
+                except:
+                    pass
+            parsed_records.sort(key=lambda x: x[0], reverse=True)
+            sorted_records = [x[1] for x in parsed_records][:7]
             
-            for row in records:
-                arrival_date = row[0]
-                min_price = int(round(float(row[1]))) if row[1] else 0
-                max_price = int(round(float(row[2]))) if row[2] else 0
-                modal_price = int(round(float(row[3]))) if row[3] else 0
+            if not sorted_records: return None
+            
+            for r in sorted_records:
+                d_str = r["arrival_date"]
+                try:
+                    d_obj = datetime.strptime(r["arrival_date"], "%d/%m/%Y")
+                    d_str = d_obj.strftime("%d %b")
+                except:
+                    pass
+                modal = float(r["modal_price"])
+                min_p = float(r["min_price"])
+                max_p = float(r["max_price"])
+                history.append({"date": d_str, "price": modal, "min": min_p, "max": max_p})
+                recent_data.append({"date": d_str, "min": min_p, "max": max_p, "modal": modal})
                 
-                if hasattr(arrival_date, "strftime"):
-                    d_dt = arrival_date
-                    d_str = d_dt.strftime("%d %b")
-                elif isinstance(arrival_date, str):
-                    try:
-                        d_dt = datetime.strptime(arrival_date, "%Y-%m-%d").date()
-                        d_str = d_dt.strftime("%d %b")
-                    except ValueError:
-                        try:
-                            d_dt = datetime.strptime(arrival_date, "%d/%m/%Y").date()
-                            d_str = d_dt.strftime("%d %b")
-                        except ValueError:
-                            d_dt = datetime.now().date()
-                            d_str = arrival_date
-                else:
-                    d_dt = datetime.now().date()
-                    d_str = str(arrival_date)
-                    
-                history.append({
-                    "date": d_str,
-                    "price": modal_price,
-                    "min": min_price,
-                    "max": max_price
-                })
-                recent_data.append({
-                    "date": d_str,
-                    "min": min_price,
-                    "max": max_price,
-                    "modal": modal_price
-                })
-
-            current_price = history[0]["price"]
+            current_price = float(sorted_records[0]["modal_price"])
             change_str = "-"
-            if len(history) > 1:
-                prev_price = history[1]["price"]
+            if len(sorted_records) > 1:
+                prev_price = float(sorted_records[1]["modal_price"])
                 if prev_price > 0:
                     pct = ((current_price - prev_price) / prev_price) * 100
                     change_str = f"{pct:+.1f}%"
                     
-            all_min = min((r["min"] for r in history if r["min"] > 0), default=0)
-            all_max = max((r["max"] for r in history if r["max"] > 0), default=0)
-
-            latest_record_date = records[0][0]
-            if hasattr(latest_record_date, "strftime"):
-                latest_dt = latest_record_date
-            elif isinstance(latest_record_date, str):
-                try:
-                    latest_dt = datetime.strptime(latest_record_date, "%Y-%m-%d").date()
-                except ValueError:
-                    try:
-                        latest_dt = datetime.strptime(latest_record_date, "%d/%m/%Y").date()
-                    except ValueError:
-                        latest_dt = datetime.now().date()
-            else:
-                latest_dt = datetime.now().date()
-
-            today_dt = datetime.now().date()
-            days_ago = (today_dt - latest_dt).days
-            is_historical = days_ago > 0
-
+            all_min = min((float(r["min_price"]) for r in sorted_records if float(r["min_price"]) > 0), default=0)
+            all_max = max((float(r["max_price"]) for r in sorted_records if float(r["max_price"]) > 0), default=0)
+            
             return {
                 "current_price": f"₹{int(current_price):,}",
                 "price_unit": "per quintal",
                 "change": change_str,
-                "market": f"{crop} - {state}{' - ' + district if district and district != 'All Districts' else ''}",
+                "market": f"{crop} - {state}{' - ' + district if district and district != 'All Districts' else ''} (Live)",
                 "history": list(reversed(history)),
                 "recent_data": recent_data,
                 "min_price": f"₹{int(all_min):,}",
-                "max_price": f"₹{int(all_max):,}",
-                "is_historical": is_historical,
-                "last_updated_days_ago": max(0, days_ago)
+                "max_price": f"₹{int(all_max):,}"
             }
-        finally:
-            db.close()
+        except Exception as e:
+            print(f"data.gov API error: {e}")
+            return None
+
+async def fetch_gemini_prices(crop: str, state: str, district: str = None):
+    gemini_key = os.getenv("GEMINI_API_KEY")
+    if not gemini_key:
+        return None
+        
+    today = datetime.now().strftime("%d %b %Y")
+    month = datetime.now().strftime("%B")
+    location = f"{district}, {state}" if district and district != "All Districts" else state
+    
+    prompt = f"""You are an Indian agricultural mandi market expert. Today is {today}.
+Give realistic current mandi prices for "{crop}" in {location}, India.
+Respond ONLY with raw JSON — no markdown, no explanation, nothing else:
+{{
+  "modal": <number>,
+  "min": <number>,
+  "max": <number>,
+  "change_pct": <number, e.g. 2.5 or -3.1>,
+  "trend": "rising" | "falling" | "stable",
+  "insight": "<one sentence about why prices are at this level in {month}>",
+  "history": [
+    {{ "date": "DD Mon", "min": <number>, "max": <number>, "modal": <number> }}
+  ]
+}}
+Rules:
+- All prices in ₹ per quintal (100 kg)
+- Use realistic seasonal prices for {month} in India
+- modal must be between min and max
+- history should have 7 entries, oldest first, ending today with realistic variation
+- Return ONLY the JSON object"""
+
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}"
+    
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        try:
+            print(f"[Gemini] Calling API for {crop} in {location}...")
+            resp = await client.post(
+                url,
+                headers={"Content-Type": "application/json"},
+                json={
+                    "contents": [{
+                        "parts": [{"text": prompt}]
+                    }],
+                    "generationConfig": {
+                        "responseMimeType": "application/json"
+                    }
+                }
+            )
+            print(f"[Gemini] Response Status: {resp.status_code}")
+            resp.raise_for_status()
             
-    # Asynchronous Execution: Dispatches synchronous SQLAlchemy I/O to a worker thread
-    return await asyncio.to_thread(_fetch_sync)
+            resp_data = resp.json()
+            raw_text = resp_data["candidates"][0]["content"]["parts"][0]["text"]
+            
+            data = json.loads(raw_text.strip())
+            
+            history = []
+            recent_data = []
+            hist_list = data.get("history", [])
+            for h in reversed(hist_list):
+                recent_data.append({
+                    "date": h["date"],
+                    "min": h["min"],
+                    "max": h["max"],
+                    "modal": h["modal"]
+                })
+            for h in hist_list:
+                history.append({
+                    "date": h["date"],
+                    "price": h["modal"],
+                    "min": h["min"],
+                    "max": h["max"]
+                })
+                
+            change_pct = data.get("change_pct", 0)
+            change_str = f"{change_pct:+.1f}%"
+            
+            all_min = min((h["min"] for h in hist_list), default=0)
+            all_max = max((h["max"] for h in hist_list), default=0)
+            
+            return {
+                "current_price": f"₹{int(data['modal']):,}",
+                "price_unit": "per quintal",
+                "change": change_str,
+                "market": f"{crop} - {state}{' - ' + district if district and district != 'All Districts' else ''} (AI Estimated)",
+                "history": history,
+                "recent_data": recent_data,
+                "min_price": f"₹{int(all_min):,}",
+                "max_price": f"₹{int(all_max):,}"
+            }
+        except Exception as e:
+            print(f"Gemini API error: {e}")
+            return None
+
+def fetch_db_prices(crop: str, state: str, district: str = None):
+    from app.database import MandiSessionLocal
+    from sqlalchemy import text
+    db = MandiSessionLocal()
+    try:
+        fetch_crop = "Paddy(Dhan)(Common)" if crop == "Rice" else crop
+        
+        sql = """
+            SELECT state, district, market, commodity, arrival_date, min_price, max_price, modal_price 
+            FROM mandi_prices 
+            WHERE state = :state AND commodity = :crop
+        """
+        params = {"state": state, "crop": fetch_crop}
+        
+        if district and district != "All Districts":
+            sql += " AND district = :district"
+            params["district"] = district
+            
+        sql += " ORDER BY arrival_date DESC LIMIT 5"
+        
+        result = db.execute(text(sql), params)
+        records = result.fetchall()
+        
+        if not records:
+            return {
+                "current_price": "N/A",
+                "price_unit": "per quintal",
+                "change": "-",
+                "market": f"{crop} - {state}{' - ' + district if district and district != 'All Districts' else ''} (No Data)",
+                "history": [],
+                "recent_data": [],
+                "min_price": "N/A",
+                "max_price": "N/A"
+            }
+
+        history = []
+        recent_data = []
+        
+        for r in records:
+            # r is a tuple or row object: (state, district, market, commodity, arrival_date, min_price, max_price, modal_price)
+            raw_date = r[4]
+            d_str = ""
+            if hasattr(raw_date, "strftime"):
+                d_str = raw_date.strftime("%d %b")
+            else:
+                d_str = str(raw_date)
+                try:
+                    d_obj = datetime.strptime(d_str, "%d/%m/%Y")
+                    d_str = d_obj.strftime("%d %b")
+                except:
+                    pass
+                
+            modal = float(r[7])
+            min_p = float(r[5])
+            max_p = float(r[6])
+            
+            history.append({
+                "date": d_str,
+                "price": modal,
+                "min": min_p,
+                "max": max_p
+            })
+            recent_data.append({
+                "date": d_str,
+                "min": min_p,
+                "max": max_p,
+                "modal": modal
+            })
+
+        current_price = float(records[0][7])
+        change_str = "-"
+        if len(records) > 1:
+            prev_price = float(records[1][7])
+            if prev_price > 0:
+                pct = ((current_price - prev_price) / prev_price) * 100
+                change_str = f"{pct:+.1f}%"
+                
+        all_min = min((float(r[5]) for r in records if float(r[5]) > 0), default=0)
+        all_max = max((float(r[6]) for r in records if float(r[6]) > 0), default=0)
+
+        return {
+            "current_price": f"₹{int(current_price):,}",
+            "price_unit": "per quintal",
+            "change": change_str,
+            "market": f"{crop} - {state}{' - ' + district if district and district != 'All Districts' else ''}",
+            "history": list(reversed(history)),
+            "recent_data": recent_data,
+            "min_price": f"₹{int(all_min):,}",
+            "max_price": f"₹{int(all_max):,}"
+        }
+    finally:
+        db.close()
+
+@alru_cache(maxsize=256)
+async def fetch_mandi_prices_cached(crop: str, state: str, district: str = None):
+    # Tier 1: Live API
+    res = await fetch_datagov_prices(crop, state, district)
+    if res:
+        return res
+        
+    # Tier 2: AI Simulation
+    res = await fetch_gemini_prices(crop, state, district)
+    if res:
+        return res
+        
+    # Tier 3: DB Fallback
+    return await asyncio.to_thread(fetch_db_prices, crop, state, district)
 
 
 @router.get('/mandi')
@@ -181,19 +339,12 @@ def get_districts(
     db: Session = Depends(get_mandi_db)
 ):
     """Get distinct districts for a given crop and state"""
-    try:
-        from sqlalchemy import text
-        fetch_crop = "Paddy(Dhan)(Common)" if crop == "Rice" else crop
-        query = text("""
-            SELECT DISTINCT district 
-            FROM mandi_prices 
-            WHERE state = :state AND commodity = :commodity
-        """)
-        result = db.execute(query, {"state": state, "commodity": fetch_crop}).fetchall()
-        return {"districts": sorted([r[0] for r in result if r[0]])}
-    except Exception as e:
-        print(f"Error fetching districts: {e}")
-        return {"districts": []}
+    from app.models import MandiRate
+    districts = db.query(MandiRate.district).filter(
+        MandiRate.state == state,
+        MandiRate.commodity == crop
+    ).distinct().all()
+    return {"districts": sorted([d[0] for d in districts if d[0]])}
 
 
 @router.get('/forecast')
@@ -203,55 +354,58 @@ def get_price_forecast(
     db: Session = Depends(get_mandi_db)
 ):
     """Predict future mandi prices using Prophet for the next 7 days"""
+    cache_key = f"{crop.lower().strip()}_{state.lower().strip()}"
+    cached_forecast = forecast_cache.get(cache_key)
+    if cached_forecast:
+        return cached_forecast
+
     from app.models import MandiRate
     from datetime import datetime, timedelta
     import pandas as pd
     from prophet import Prophet
 
-    # 1. Fetch historical data for the last 35 days from mandi_prices natively
+    # 1. Fetch historical data for the last 30 days
     from sqlalchemy import text
-    query = text("""
-        SELECT arrival_date, AVG(modal_price) as modal_price
-        FROM mandi_prices
-        WHERE state = :state AND commodity = :commodity AND modal_price IS NOT NULL
-        GROUP BY arrival_date
-        ORDER BY arrival_date DESC
-        LIMIT 35
-    """)
-    records = db.execute(query, {"state": state, "commodity": crop}).fetchall()
-
+    cutoff_date = (datetime.utcnow() - timedelta(days=30)).date()
+    
+    sql = """
+        SELECT arrival_date, modal_price 
+        FROM mandi_prices 
+        WHERE state = :state AND commodity = :crop 
+          AND modal_price IS NOT NULL 
+          AND arrival_date >= :cutoff_date
+        ORDER BY arrival_date ASC
+    """
+    
+    result = db.execute(text(sql), {"state": state, "crop": crop, "cutoff_date": cutoff_date})
+    records = result.fetchall()
+    
     if not records:
         return []
-
-    # Reverse to chronological order for Prophet
-    records.reverse()
-
+        
     # 2. Format into Pandas DataFrame
     data = []
     
     for r in records:
-        arrival_date = r[0]
-        modal_price = r[1]
-        
-        try:
-            if hasattr(arrival_date, "strftime"):
-                ds_val = arrival_date
-            elif isinstance(arrival_date, str):
-                try:
-                    ds_val = datetime.strptime(arrival_date, "%Y-%m-%d")
-                except ValueError:
-                    ds_val = datetime.strptime(arrival_date, "%d/%m/%Y")
-            else:
-                ds_val = datetime.now()
-        except Exception:
-            ds_val = datetime.now()
-            
+        raw_date = r[0]
+        ds_val = None
+        if hasattr(raw_date, "strftime"):
+            ds_val = raw_date
+        else:
+            try:
+                ds_val = datetime.strptime(str(raw_date), "%d/%m/%Y")
+            except:
+                continue
+                
         data.append({
             "ds": ds_val,
-            "y": float(modal_price)
+            "y": float(r[1])
         })
         
     df = pd.DataFrame(data)
+    
+    # Explicitly convert 'ds' to datetime
+    df['ds'] = pd.to_datetime(df['ds'])
 
     # Aggregate daily to smooth out multiple updates in one day
     df_daily = df.groupby(df['ds'].dt.date)['y'].mean().reset_index()
@@ -332,7 +486,9 @@ def get_price_forecast(
             })
 
     # Combine historical and forecasted data
-    return historical_json + forecast_json
+    final_result = historical_json + forecast_json
+    forecast_cache.set(cache_key, final_result)
+    return final_result
 
 
 

@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { Save, User, Globe, FileText, Download, Trash2, ArrowLeft } from 'lucide-react';
 import LanguageSelector from './LanguageSelector'; // Reuse existing component
-import api from '../api'; // Import the centralized API instance
 
 interface Message {
     id: string;
@@ -19,15 +18,17 @@ interface SettingsProps {
     onLanguageChange: (lang: string) => void;
     username: string | null;
     displayName: string | null;
+    avatarUrl: string | null;
     token: string | null;
     onUpdateProfile: (updates: { displayName?: string, avatarUrl?: string }) => void;
     onLogout: () => void;
 }
 
 
-const Settings = ({ onBack, messages, onDeleteMessage, onClearHistory, currentLanguage, onLanguageChange, username, displayName, token, onUpdateProfile, onLogout }: SettingsProps) => {
+const Settings = ({ onBack, messages, onDeleteMessage, onClearHistory, currentLanguage, onLanguageChange, username, displayName, avatarUrl, token, onUpdateProfile, onLogout }: SettingsProps) => {
     const [activeTab, setActiveTab] = useState<'profile' | 'history' | 'language' | 'data'>('profile');
     const [newDisplayName, setNewDisplayName] = useState(displayName || '');
+    const [newAvatar] = useState(avatarUrl || '');
     const [status, setStatus] = useState('');
 
     // Change Password states
@@ -37,49 +38,59 @@ const Settings = ({ onBack, messages, onDeleteMessage, onClearHistory, currentLa
 
     const handleSaveProfile = async () => {
         try {
-            const formData = new FormData();
-            formData.append('display_name', newDisplayName);
-            // If there was an avatarFile state, it would be appended here:
-            // if (avatarFile) formData.append('avatar', avatarFile);
-
-            const res = await api.put('/auth/profile', formData, {
+            const res = await fetch('/api/auth/profile', {
+                method: 'PUT',
                 headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'multipart/form-data',
-                }
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    display_name: newDisplayName,
+                    avatar_url: newAvatar
+                })
             });
-
-            onUpdateProfile({ displayName: newDisplayName, avatarUrl: res.data.avatar_url });
-            setStatus('Profile updated!');
-        } catch (e: any) {
+            if (res.ok) {
+                onUpdateProfile({ displayName: newDisplayName, avatarUrl: newAvatar });
+                setStatus('Profile updated!');
+            } else {
+                setStatus('Failed to update profile');
+            }
+        } catch (e) {
             console.error(e);
-            setStatus(e.response?.data?.detail || 'Error updating profile');
+            setStatus('Error updating profile');
         }
         setTimeout(() => setStatus(''), 2000);
     };
 
     const handleChangePassword = async () => {
         if (newPwd !== confirmPwd) {
-            setStatus("New passwords do not match!");
-            setTimeout(() => setStatus(''), 2000);
+            alert("New passwords do not match!");
             return;
         }
         try {
-            await api.put('/auth/change-password', {
-                current_password: currentPwd,
-                new_password: newPwd
-            }, {
+            const res = await fetch('/api/auth/change-password', {
+                method: 'POST',
                 headers: {
+                    'Content-Type': 'application/json',
                     'Authorization': `Bearer ${token}`
-                }
+                },
+                body: JSON.stringify({
+                    current_password: currentPwd,
+                    new_password: newPwd
+                })
             });
-            setStatus('Password changed!');
-            setCurrentPwd('');
-            setNewPwd('');
-            setConfirmPwd('');
-        } catch (e: any) {
+            if (res.ok) {
+                setStatus('Password changed!');
+                setCurrentPwd('');
+                setNewPwd('');
+                setConfirmPwd('');
+            } else {
+                const err = await res.json();
+                alert(err.detail || 'Failed to change password');
+            }
+        } catch (e) {
             console.error(e);
-            setStatus(e.response?.data?.detail || 'Error updating password');
+            alert('Error updating password');
         }
         setTimeout(() => setStatus(''), 2000);
     };
@@ -92,24 +103,27 @@ const Settings = ({ onBack, messages, onDeleteMessage, onClearHistory, currentLa
         reader.onload = async (event) => {
             try {
                 const jsonData = JSON.parse(event.target?.result as string);
-                // The diff provided a different approach for import, using formData for a file.
-                // Assuming the backend expects the JSON directly for import, as per original fetch.
-                // If the backend expects a file upload, the formData approach from the diff would be used.
-                const res = await api.post('/auth/import', jsonData, {
+                const res = await fetch('/api/auth/import', {
+                    method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
                         'Authorization': `Bearer ${token}`
-                    }
+                    },
+                    body: JSON.stringify(jsonData)
                 });
-                setStatus(res.data.message);
-                window.location.reload(); // Reload to show imported history
-            } catch (err: any) {
+                if (res.ok) {
+                    const result = await res.json();
+                    alert(result.message);
+                    window.location.reload(); // Reload to show imported history
+                } else {
+                    alert('Failed to import data');
+                }
+            } catch (err) {
                 console.error(err);
-                setStatus(err.response?.data?.detail || 'Invalid JSON file or failed to import data');
+                alert('Invalid JSON file');
             }
         };
         reader.readAsText(file);
-        setTimeout(() => setStatus(''), 2000);
     };
 
     const handleDownloadData = () => {
@@ -368,9 +382,19 @@ const Settings = ({ onBack, messages, onDeleteMessage, onClearHistory, currentLa
                                     onClick={async () => {
                                         if (window.confirm('Are you ABSOLUTELY SURE? This will permanently delete your account and all data. This action cannot be undone.')) {
                                             try {
-                                                await api.delete('/auth/profile', {
+                                                const token = sessionStorage.getItem('token');
+                                                const res = await fetch('/api/auth/profile', {
+                                                    method: 'DELETE',
                                                     headers: { 'Authorization': `Bearer ${token}` }
                                                 });
+                                                if (res.ok) {
+                                                    alert('Account deleted successfully.');
+                                                    sessionStorage.clear();
+                                                    localStorage.clear(); // Absolute data obliteration
+                                                    onLogout();
+                                                } else {
+                                                    alert('Failed to delete account.');
+                                                }
                                             } catch (e) {
                                                 console.error(e);
                                                 alert('An error occurred.');

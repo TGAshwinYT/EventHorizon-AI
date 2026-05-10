@@ -5,7 +5,6 @@ import os
 import io
 import tempfile
 from groq import Groq
-import whisper
 from typing import Optional, List, Dict, Any, Union
 from pydantic import BaseModel
 from app.services.gemini_service import GeminiService
@@ -85,7 +84,7 @@ def detect_language(text: str, default: str = 'en') -> str:
     if any('\u0900' <= c <= '\u097F' for c in text): return 'hi'  # Hindi
     elif any('\u0C00' <= c <= '\u0C7F' for c in text): return 'te'  # Telugu
     elif any('\u0980' <= c <= '\u09FF' for c in text): return 'bn'  # Bengali
-    elif any('\u0800' <= c <= '\u0BFF' for c in text): return 'ta'  # Tamil
+    elif any('\u0B80' <= c <= '\u0BFF' for c in text): return 'ta'  # Tamil
     elif any('\u0C80' <= c <= '\u0CFF' for c in text): return 'kn'  # Kannada
     elif any('\u0D00' <= c <= '\u0D7F' for c in text): return 'ml'  # Malayalam
     elif any('\u0A80' <= c <= '\u0AFF' for c in text): return 'gu'  # Gujarati
@@ -224,6 +223,16 @@ async def chat_endpoint(request: Request):
     
     if audio:
         audio_bytes = await audio.read()
+        from app.services.riva_asr_service import riva_asr_service
+        
+        # 1. Transcribe audio using Groq Whisper (which handles Taenglish/Hienglish)
+        transcribed_text, detected_lang = await riva_asr_service.transcribe(audio_bytes, target_lang)
+        
+        print(f"[ASR] User said: {transcribed_text}")
+        if not transcribed_text:
+            raise HTTPException(status_code=400, detail="Could not understand audio")
+            
+        user_message = transcribed_text
         
         # Determine instruction
         market_instruction = ""
@@ -244,31 +253,13 @@ async def chat_endpoint(request: Request):
                 "Structure: [Summary] ||| [Details]"
             )
 
-        extended_instruction = market_instruction + "\nTASK: 1. Transcribe the user's speech exactly.\n2. Provide a helpful response IN THE SAME LANGUAGE AS THE USER'S SPEECH.\nOUTPUT FORMAT:\nTranscribed: <user_speech>\nResponse: <ai_response>"
+        extended_instruction = market_instruction + "\nTASK: Provide a helpful response IN THE SAME LANGUAGE AS THE USER'S SPEECH."
         
         trimmed_history = process_and_trim_history(session_db_history, extended_instruction, max_conversational_items=6)
         
-        gemini_output = gemini_service.generate_response(message="", audio_data=audio_bytes, audio_mime_type='audio/ogg', context=context, use_search=use_search_flag, history=trimmed_history)
-        print(f"[GEMINI AUDIO] Raw output: {gemini_output[:100]}...")
-        
-        # Parse Output
-        import re
-        transcribed_match = re.search(r"Transcribed:\s*(.*?)(?:\nResponse:|$)", gemini_output, re.DOTALL)
-        response_match = re.search(r"Response:\s*(.*)", gemini_output, re.DOTALL)
-        
-        if transcribed_match:
-            user_message = transcribed_match.group(1).strip()
-        else:
-            user_message = "(Audio Input)"
-            
-        if response_match:
-            ai_response = response_match.group(1).strip()
-        else:
-            # Fallback if format failed
-            ai_response = gemini_output.replace(f"Transcribed: {user_message}", "").strip()
-
-        print(f"[GEMINI AUDIO] Transcribed: {user_message}")
-        print(f"[GEMINI AUDIO] Response: {ai_response}")
+        # 2. Pass transcribed text to Gemini
+        ai_response = gemini_service.generate_response(message=user_message, audio_data=None, audio_mime_type=None, context=context, use_search=use_search_flag, history=trimmed_history)
+        print(f"[GEMINI] Response: {ai_response}")
         
         # DETECT language of user speech to use for Text-to-Speech
         detected_lang = detect_language(user_message, 'en')
@@ -278,11 +269,7 @@ async def chat_endpoint(request: Request):
         detected_lang = detect_language(user_message, 'en')
         detected_lang_name = LANGUAGE_NAMES.get(detected_lang, 'English')
         
-        if detected_lang != 'en':
-            english_query = audio_service.translate_text(user_message, 'en')
-            print(f"[TRANSLATE] {detected_lang}->en: {english_query}")
-        else:
-            english_query = user_message
+        final_query_text = user_message
             
         # Structure the instruction with the DETECTED language, not the UI language
         if use_search_flag:
@@ -303,8 +290,13 @@ async def chat_endpoint(request: Request):
                 "Part 2: Detailed explanation and more information if applicable. "
                 "Structure: [Summary] ||| [Details]"
             )
+
+        if detected_lang == 'ta':
+            structured_instruction += " IMPORTANT: Respond in natural, conversational 'Taenglish' (Tamil written in Roman/English script or a mix, matching the user's script style). Do not sound like a formal machine translation. Speak like a helpful friend."
+        elif detected_lang != 'en':
+            structured_instruction += f" IMPORTANT: Respond in natural, conversational {detected_lang_name}. Do not sound like a formal machine translation."
             
-        final_query = english_query + "\n\n" + structured_instruction
+        final_query = final_query_text + "\n\n" + structured_instruction
         trimmed_history = process_and_trim_history(session_db_history, final_query, max_conversational_items=6)
         
         ai_response = gemini_service.generate_response(message="", context=context, use_search=use_search_flag, history=trimmed_history)

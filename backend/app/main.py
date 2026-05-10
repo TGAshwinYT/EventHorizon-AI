@@ -15,9 +15,8 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from app.routers import chat, market, voice, auth, weather, mandi_prices
+from app.routers import chat, market, voice, auth, weather, voice_pipeline, scanner
 from app.database import auth_engine, mandi_engine, AuthBase, MandiBase
-import whisper
 
 ml_models = {}
 
@@ -57,8 +56,25 @@ async def lifespan(app: FastAPI):
     print("APPLICATION STARTING UP...")
     app.state.is_ready = False
     
-    print("[-] Warm-up: Loading Whisper model into global RAM...")
-    ml_models["whisper_tiny"] = whisper.load_model("tiny")
+    # Whisper is now lazy-loaded by riva_asr_service (Tier 3 fallback)
+    # Only pre-load if no NVIDIA/Groq API keys are configured
+    nvidia_key = os.getenv("NVIDIA_API_KEY", "")
+    groq_key = os.getenv("GROQ_API_KEY", "")
+    if not nvidia_key and not groq_key:
+        print("[-] No cloud ASR keys found. Pre-loading local Whisper-tiny...")
+        try:
+            import whisper
+            ml_models["whisper_tiny"] = whisper.load_model("tiny")
+        except ImportError:
+            print("[!] openai-whisper not installed. Local Whisper fallback unavailable.")
+    else:
+        print("[-] Cloud ASR available. Skipping Whisper pre-load (lazy fallback).")
+    
+    # Log NVIDIA NIM status
+    if nvidia_key:
+        print(f"[*] NVIDIA NIM: ENABLED (key: {nvidia_key[:12]}...)")
+    else:
+        print("[!] NVIDIA NIM: DISABLED (set NVIDIA_API_KEY in .env for Riva ASR/TTS)")
     
     # 1. Start Scheduler
     from app.services.scheduler import start_scheduler
@@ -99,13 +115,9 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="EventHorizon AI Backend", lifespan=lifespan)
 
 app.add_middleware(
+
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "https://*.hf.space",
-        "https://huggingface.co",
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -117,7 +129,10 @@ app.include_router(market.router, prefix='/api/market', tags=["Market"])
 app.include_router(voice.router, prefix='/api/voice', tags=["Voice"])
 app.include_router(auth.router, prefix='/api/auth', tags=["Auth"])
 app.include_router(weather.router, prefix='/api/weather', tags=["Weather"])
-app.include_router(mandi_prices.router, prefix='/api/mandi', tags=["Mandi"])
+# Real-time voice pipeline (WebSocket ASR -> LLM -> TTS)
+app.include_router(voice_pipeline.router, tags=["Voice Pipeline"])
+# Visual Diagnostic Scanner (crop disease diagnosis from images)
+app.include_router(scanner.router, prefix='/api/scanner', tags=["Scanner"])
 
 @app.get('/')
 async def root():

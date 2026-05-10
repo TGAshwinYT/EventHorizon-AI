@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import api from '../api';
 import { RefreshCw } from 'lucide-react';
 
 interface GatekeeperProps {
@@ -15,13 +14,14 @@ const Gatekeeper: React.FC<GatekeeperProps> = ({ children }) => {
 
         const checkHealth = async () => {
             try {
-                // Attempt to reach the backend health endpoint
-                const response = await api.get('/api/health');
-
-                if (response.status === 200 && response.data.status === 'ready') {
-                    setIsBackendReady(true);
-                    setIsError(false);
-                    clearInterval(intervalId);
+                const response = await fetch('/api/health');
+                if (response.ok) {
+                    const data = await response.json();
+                    if (data.status === 'ready') {
+                        setIsBackendReady(true);
+                        setIsError(false);
+                        clearInterval(intervalId);
+                    }
                 } else {
                     console.log('Backend is booting up...');
                 }

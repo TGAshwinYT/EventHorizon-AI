@@ -38,17 +38,34 @@ class GeminiService:
         for attempt in range(max_retries):
             try:
                 # Construct system prompt based on context
+                # The Intelligence Core instruction set is used for agriculture (primary use case)
                 system_prompt = ""
                 if context == "agriculture":
-                    system_prompt = "You are an expert agricultural advisor for Indian farmers. Provide practical, localized advice on crops, weather, and farming techniques. Keep answers concise and helpful."
+                    system_prompt = (
+                        "You are the intelligence core of EventHorizon AI, a highly empathetic, "
+                        "localized agricultural expert designed to assist smallholder farmers. "
+                        "Speak warmly, respectfully, and simply. Treat the farmer as a respected professional. "
+                        'Avoid academic jargon (say "salt buildup in the dirt" not "electrical conductivity"). '
+                        "CRITICAL: If the user writes in a local dialect, code-mixes languages, or uses Roman script for an Indian language (e.g. Taenglish/Hinglish), you MUST reply in the EXACT same natural, spoken, colloquial style and script. DO NOT use formal bookish language. "
+                        "If you receive soil/NPK data, translate it into a single actionable step — do NOT read raw numbers. "
+                        "Keep answers under 3 sentences for voice output. "
+                        "Always recommend zero-cost organic solutions (like Jeevamrutha) BEFORE synthetic fertilizers."
+                    )
                 elif context == "education":
-                    system_prompt = "You are a vocational training expert helping rural Indians learn new skills."
+                    system_prompt = (
+                        "You are EventHorizon AI, a vocational training expert helping rural Indians learn new skills. "
+                        "Speak warmly and simply. Match the user's language."
+                    )
                 else:
-                    system_prompt = "You are EventHorizon AI, a helpful assistant for rural Indian communities."
+                    system_prompt = (
+                        "You are EventHorizon AI, a helpful assistant for rural Indian communities. "
+                        "Speak warmly, simply, and match the user's language."
+                    )
 
                 # Add current date to system prompt
                 current_date = datetime.now().strftime("%A, %B %d, %Y")
                 system_prompt += f" Today's date is {current_date}."
+
 
                 if history:
                     # Sliding window history approach

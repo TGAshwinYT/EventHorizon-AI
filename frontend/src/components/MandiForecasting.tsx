@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { Loader2, TrendingUp, AlertTriangle } from 'lucide-react';
-import api from '../api';
 
 interface ForecastData {
     date: string;
@@ -27,10 +26,11 @@ const MandiForecasting = ({ crop, state, labels }: MandiForecastingProps) => {
             setLoading(true);
             setError(null);
             try {
-                // Fetch forecast using the centralized api instance
-                const response = await api.get(`/api/market/forecast?crop=${encodeURIComponent(crop)}&state=${encodeURIComponent(state)}`);
-
-                const result = response.data;
+                const response = await fetch(`/api/market/forecast?crop=${encodeURIComponent(crop)}&state=${encodeURIComponent(state)}`);
+                if (!response.ok) {
+                    throw new Error('Failed to fetch forecast data');
+                }
+                const result = await response.json();
 
                 // Format dates for display (e.g. "Feb 21")
                 const formattedData = result.map((item: any) => {
@@ -84,40 +84,44 @@ const MandiForecasting = ({ crop, state, labels }: MandiForecastingProps) => {
         );
     }
 
-    // Split data for visually distinct lines
-    // We want the lines to connect, so the first point of forecast should be the last of history
     const historyData = data.filter(d => !d.isForecast);
     const latestHistory = historyData.length > 0 ? historyData[historyData.length - 1] : null;
-
-    const forecastData = data.filter(d => d.isForecast);
-
-    // Connect the lines by adding the last historical point to the start of the forecast line
-    // but only if both exist
-    const connectedForecastData = (latestHistory && forecastData.length > 0)
-        ? [latestHistory, ...forecastData]
-        : forecastData;
-
-    // Find min and max for Y-axis domain to make chart look better
     const prices = data.map(d => d.price);
-    const minPrice = Math.max(0, Math.min(...prices) * 0.9); // 10% padding below
-    const maxPrice = Math.max(...prices) * 1.1; // 10% padding above
+    const minPrice = Math.max(0, Math.min(...prices) * 0.9);
+    const maxPrice = Math.max(...prices) * 1.1;
+
+    // Create a unified data structure for the chart
+    const chartData = data.map(item => ({
+        ...item,
+        historyPrice: !item.isForecast ? item.price : null,
+        forecastPrice: item.isForecast ? item.price : (latestHistory && item.date === latestHistory.date ? item.price : null)
+    }));
+
+    // If we have history, the first point of forecast should be the last point of history
+    if (latestHistory) {
+        const lastHistoryIndex = chartData.findIndex(d => d.date === latestHistory.date && !d.isForecast);
+        if (lastHistoryIndex !== -1) {
+            chartData[lastHistoryIndex].forecastPrice = latestHistory.price;
+        }
+    }
 
     // Custom Tooltip
     const CustomTooltip = ({ active, payload }: any) => {
         if (active && payload && payload.length) {
             const dataPoint = payload[0].payload;
+            const isForecastPoint = dataPoint.isForecast || (payload[0].dataKey === 'forecastPrice' && !dataPoint.historyPrice);
             return (
                 <div className="bg-[#1A1B23] border border-white/10 p-4 rounded-xl shadow-2xl backdrop-blur-md">
                     <p className="text-gray-400 mb-1">{dataPoint.displayDate}</p>
                     <p className="text-2xl font-bold flex items-center gap-2">
-                        <span className={dataPoint.isForecast ? "text-amber-400" : "text-[#00FF7F]"}>
+                        <span className={isForecastPoint ? "text-amber-400" : "text-[#00FF7F]"}>
                             ₹{dataPoint.price}
                         </span>
                     </p>
                     <div className="mt-2 flex items-center gap-2">
-                        <div className={`w-2 h-2 rounded-full ${dataPoint.isForecast ? "bg-amber-400" : "bg-[#00FF7F]"}`} />
+                        <div className={`w-2 h-2 rounded-full ${isForecastPoint ? "bg-amber-400" : "bg-[#00FF7F]"}`} />
                         <span className="text-sm text-gray-300">
-                            {dataPoint.isForecast ? (labels?.aiPrediction || "7-Day AI Prediction") : (labels?.historicalHistory || "Historical Price")}
+                            {isForecastPoint ? (labels?.aiPrediction || "7-Day AI Prediction") : (labels?.historicalHistory || "Historical Price")}
                         </span>
                     </div>
                 </div>
@@ -158,9 +162,9 @@ const MandiForecasting = ({ crop, state, labels }: MandiForecastingProps) => {
                 </div>
             </div>
 
-            <div className="w-full h-[350px] relative z-10 sm:-ml-2 pr-2 sm:pr-0">
-                <ResponsiveContainer width="100%" height="100%">
-                    <LineChart margin={{ top: 20, right: 10, left: 0, bottom: 20 }}>
+            <div className="w-full h-[350px] relative z-10 pr-2 sm:pr-0">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                    <LineChart data={chartData} margin={{ top: 20, right: 10, left: 10, bottom: 20 }}>
                         <defs>
                             <linearGradient id="glow" x1="0" y1="0" x2="0" y2="1">
                                 <stop offset="5%" stopColor="#00FF7F" stopOpacity={0.3} />
@@ -170,12 +174,11 @@ const MandiForecasting = ({ crop, state, labels }: MandiForecastingProps) => {
                         <CartesianGrid strokeDasharray="3 3" stroke="#ffffff10" vertical={false} />
                         <XAxis
                             dataKey="displayDate"
-                            type="category"
-                            allowDuplicatedCategory={false}
                             axisLine={false}
                             tickLine={false}
                             tick={{ fill: '#6B7280', fontSize: 12 }}
                             dy={10}
+                            interval="preserveStartEnd"
                         />
                         <YAxis
                             domain={[minPrice, maxPrice]}
@@ -183,7 +186,7 @@ const MandiForecasting = ({ crop, state, labels }: MandiForecastingProps) => {
                             tickLine={false}
                             tick={{ fill: '#6B7280', fontSize: 12 }}
                             tickFormatter={(value) => `₹${value}`}
-                            dx={-10}
+                            width={60}
                         />
                         <Tooltip content={<CustomTooltip />} cursor={{ stroke: '#ffffff20', strokeWidth: 1, strokeDasharray: '5 5' }} />
 
@@ -199,27 +202,27 @@ const MandiForecasting = ({ crop, state, labels }: MandiForecastingProps) => {
 
                         {/* Historical Line */}
                         <Line
-                            data={historyData}
                             type="monotone"
-                            dataKey="price"
+                            dataKey="historyPrice"
                             stroke="#00FF7F"
                             strokeWidth={3}
                             dot={{ r: 4, fill: '#1A1B23', stroke: '#00FF7F', strokeWidth: 2 }}
                             activeDot={{ r: 6, fill: '#00FF7F', stroke: '#fff', strokeWidth: 2 }}
-                            isAnimationActive={false}
+                            isAnimationActive={true}
+                            connectNulls={false}
                         />
 
                         {/* Forecast Line */}
                         <Line
-                            data={connectedForecastData}
                             type="monotone"
-                            dataKey="price"
+                            dataKey="forecastPrice"
                             stroke="#00FF7F"
                             strokeWidth={3}
                             strokeDasharray="5 5"
                             dot={{ r: 4, fill: '#1A1B23', stroke: '#00FF7F', strokeWidth: 2 }}
-                            activeDot={{ r: 6, fill: '#amber-400', stroke: '#fff', strokeWidth: 2 }}
-                            isAnimationActive={false}
+                            activeDot={{ r: 6, fill: '#fbbf24', stroke: '#fff', strokeWidth: 2 }}
+                            isAnimationActive={true}
+                            connectNulls={true}
                         />
                     </LineChart>
                 </ResponsiveContainer>

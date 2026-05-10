@@ -20,11 +20,38 @@ COMMODITIES = [
     'Mango', 'Orange', 'Pomegranate', 'Grapes'
 ]
 
-import json
+import requests
+import os
 import time
+from typing import List, Dict, Any, Optional, Union, Set
+from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from sqlalchemy.orm import Session
+from sqlalchemy.dialects.postgresql import insert
+from app.models import MandiRate
+from app.database import MandiSessionLocal, debug_print
+
+# --- Agmarknet API Config ---
+AGMARKNET_API_KEY = os.getenv("AGMARKNET_API_KEY") 
+BASE_URL = "https://api.data.gov.in/resource/9ef84268-d588-465a-a308-a864a43d0070"
+
+# Configuration for robustness
+MAX_WORKERS = 3     # Parallel workers - kept low to avoid rate limits
+TIMEOUT = 60        # Seconds
+MAX_RETRIES = 3     # Retries per commodity
+RETRY_DELAY = 5     # Base delay for backoff
+
+# Expanded list of commodities relevant to rural Indian farmers
+COMMODITIES = [
+    'Tomato', 'Onion', 'Potato', 'Rice', 'Paddy(Dhan)(Common)', 'Wheat', 
+    'Maize', 'Cotton', 'Sugarcane', 'Brinjal', 'Cabbage', 'Cauliflower', 
+    'Carrot', 'Bhindi(Ladies Finger)', 'Green Chilli', 'Apple', 'Banana', 
+    'Mango', 'Orange', 'Pomegranate', 'Grapes', 'Bitter Gourd', 'Bottle Gourd',
+    'Garlic', 'Ginger', 'Turmeric', 'Papaya', 'Lemon', 'Coconut'
+]
 
 def _format_agmarknet_date(raw_date_str: str) -> str:
-    # OGD Agmarknet returns various formats. We want DD/MM/YYYY for our DB.
+    """Helper to ensure dates are in DD/MM/YYYY format for our DB."""
     try:
         if "-" in raw_date_str:
             dt = datetime.strptime(raw_date_str.split("T")[0], "%Y-%m-%d")
@@ -36,176 +63,200 @@ def _format_agmarknet_date(raw_date_str: str) -> str:
     except Exception:
         return datetime.now().strftime("%d/%m/%Y")
 
+def _fetch_single_commodity(commodity: str, date: str, session: requests.Session) -> List[Dict[str, Any]]:
+    """Fetch all records for one commodity on one date with retries and backoff."""
+    params = {
+        "api-key": AGMARKNET_API_KEY,
+        "format": "json",
+        "limit": "2000",
+        "filters[commodity]": commodity,
+        "filters[arrival_date]": date,
+    }
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            response = session.get(BASE_URL, params=params, timeout=TIMEOUT, verify=False)
+            if response.status_code == 200:
+                data = response.json()
+                return data.get("records", [])
+            elif response.status_code == 429:
+                wait = 10 * attempt
+                time.sleep(wait)
+            else:
+                break # Non-retryable error
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError):
+            if attempt < MAX_RETRIES:
+                time.sleep(RETRY_DELAY * attempt)
+        except Exception:
+            break
+    return []
+
 def fetch_agmarknet_mandi_prices(db: Optional[Session] = None, target_date: Optional[str] = None):
     """
-    Fetches data from OGD Agmarknet API and stores it in the database.
+    Fetches data from OGD Agmarknet API using a robust parallel strategy.
+    Tries today's date first, falls back to yesterday if no data is found.
     """
+    if not AGMARKNET_API_KEY:
+        print("[Agmarknet API] No API Key. Skipping fetch.")
+        return
+
     close_session = False
+    if db is None:
+        db = MandiSessionLocal()
+        close_session = True
+
+    # Suppress insecure request warnings if verify=False is used
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    
+    # Dates to try
+    if target_date:
+        dates_to_try = [target_date]
+    else:
+        today = datetime.now().strftime("%d/%m/%Y")
+        yesterday = (datetime.now() - timedelta(days=1)).strftime("%d/%m/%Y")
+        dates_to_try = [today, yesterday]
+
     try:
-        if not AGMARKNET_API_KEY:
-            print("[Agmarknet API] No AGMARKNET_API_KEY found in environment variables. Skipping fetch.")
-            return
-
-        print("[Agmarknet API] Starting background fetch...")
+        session = requests.Session()
+        session.headers.update({'User-Agent': 'EventHorizon-AI/1.0'})
         
-        if db is None:
-            db = MandiSessionLocal()
-            close_session = True
-
         mandi_records_batch = []
         seen_keys = set()
-        
-        # Suppress insecure request warnings if verify=False is used
-        import urllib3
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-        session = requests.Session()
-        session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
-        
-        total_commodities = len(COMMODITIES)
-        print(f"[Agmarknet API] Starting fetch for {total_commodities} commodities.")
-        
-        consecutive_errors = 0
-        for c_idx, crop_name in enumerate(COMMODITIES, 1):
-            print(f"\\n[Agmarknet API] [{c_idx}/{total_commodities}] Processing Commodity: {crop_name}")
-            
-            if consecutive_errors >= 5:
-                print(f"[Agmarknet API] Consecutive errors reached limit. Pausing...")
-                time.sleep(15)
-                consecutive_errors = 0
+        successful_date = None
 
-            # Encode spaces and characters
-            import urllib.parse
-            encoded_crop = urllib.parse.quote(crop_name)
-            api_url = f"{BASE_URL}?api-key={AGMARKNET_API_KEY}&format=json&limit=2000&filters[commodity]={encoded_crop}"
-            
-            if target_date:
-                # OGD usually expects date in DD/MM/YYYY for arrival_date filter
-                encoded_date = urllib.parse.quote(target_date)
-                api_url += f"&filters[arrival_date]={encoded_date}"
-            
-            max_retries = 3
-            retries = 0
-            
-            while retries < max_retries:
-                try:
-                    response = session.get(api_url, timeout=30, verify=False)
+        for date in dates_to_try:
+            print(f"[Agmarknet API] Attempting fetch for date: {date}")
+            date_records_count = 0
+            failed_crops = []
+
+            with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+                futures = {executor.submit(_fetch_single_commodity, crop, date, session): crop for crop in COMMODITIES}
+                
+                for future in as_completed(futures):
+                    crop_name = futures[future]
+                    records = future.result()
                     
-                    if response.status_code == 200:
-                        consecutive_errors = 0
-                        data = response.json()
-                        records = data.get("records", [])
-                        
-                        found_count = 0
-                        for record in records:
+                    if not records:
+                        failed_crops.append(crop_name)
+                        continue
+
+                    for record in records:
+                        try:
                             state_name = record.get("state", "Unknown State").title()
                             district = record.get("district", "Unknown District").title()
                             market = record.get("market", "State Aggregated").title()
                             commodity = crop_name
-                            variety = record.get("variety", "")
                             
-                            raw_date = record.get("arrival_date", "")
-                            arrival_date = _format_agmarknet_date(raw_date)
-                            
+                            # Standardize Rice naming
                             if commodity == "Paddy(Dhan)(Common)":
                                 commodity = "Rice"
-                                
+                            
+                            arrival_date = _format_agmarknet_date(record.get("arrival_date", ""))
+                            
                             key = (state_name, district, market, commodity, arrival_date)
-                            if key in seen_keys:
-                                continue
+                            if key in seen_keys: continue
                             seen_keys.add(key)
-                            
-                            try:
-                                raw_min = record.get("min_price")
-                                raw_max = record.get("max_price")
-                                raw_modal = record.get("modal_price")
 
-                                if raw_min is None or raw_max is None or raw_modal is None:
-                                    continue
+                            raw_min = record.get("min_price")
+                            raw_max = record.get("max_price")
+                            raw_modal = record.get("modal_price")
 
-                                min_price = int(float(raw_min))
-                                max_price = int(float(raw_max))
-                                modal_price = int(float(raw_modal))
-
-                                if modal_price <= 0:
-                                    continue
-
-                                mandi_records_batch.append({
-                                    "state": state_name,
-                                    "district": district,
-                                    "market": market,
-                                    "commodity": commodity,
-                                    "variety": variety,
-                                    "arrival_date": arrival_date,
-                                    "min_price": min_price,
-                                    "max_price": max_price,
-                                    "modal_price": modal_price
-                                })
-                                found_count += 1
-                            except (ValueError, TypeError):
+                            if raw_min is None or raw_max is None or raw_modal is None:
                                 continue
-                        
-                        print(f"  > Success! Fetched {len(records)} raw records, added {found_count} valid records.")
-                        break
-                            
-                    elif response.status_code == 429:
-                        print(f"  > [Agmarknet API] Rate Limit. Retrying in 10s...")
-                        time.sleep(10)
-                        retries += 1
-                        
-                    else:
-                        print(f"  > FAILED (Status {response.status_code})")
-                        consecutive_errors += 1
-                        break
-                        
-                except requests.exceptions.Timeout:
-                    print("  > Timeout. Retrying...")
-                    time.sleep(5)
-                    retries += 1
-                except Exception as e:
-                    print(f"  > Error: {e}. Retrying...")
-                    time.sleep(5)
-                    retries += 1
-            
-            time.sleep(0.5)
 
-        print(f"\\n[Agmarknet API] Finished fetching. Total valid records batched: {len(mandi_records_batch)}")
-        
-        if mandi_records_batch:
-            print("[Agmarknet API] Executing bulk upsert...")
-            stmt = insert(MandiRate).values(mandi_records_batch)
+                            mandi_records_batch.append({
+                                "state": state_name,
+                                "district": district,
+                                "market": market,
+                                "commodity": commodity,
+                                "variety": record.get("variety", ""),
+                                "arrival_date": arrival_date,
+                                "min_price": int(float(raw_min)),
+                                "max_price": int(float(raw_max)),
+                                "modal_price": int(float(raw_modal))
+                            })
+                            date_records_count += 1
+                        except (ValueError, TypeError):
+                            continue
             
-            try:
-                upsert_stmt = stmt.on_conflict_do_update(
-                    constraint="uix_mandi_prices", 
-                    set_={
-                        "min_price": stmt.excluded.min_price,
-                        "max_price": stmt.excluded.max_price,
-                        "modal_price": stmt.excluded.modal_price,
-                        "variety": stmt.excluded.variety,
-                        "updated_at": datetime.utcnow()
-                    },
-                    where=(stmt.excluded.modal_price > 0)
-                )
-                db.execute(upsert_stmt)
-            except Exception as db_e:
-                print(f"[Agmarknet API] Upsert failed: {db_e}")
-                db.rollback()
+            if date_records_count > 0:
+                print(f"[Agmarknet API] ✅ Successfully fetched {date_records_count} records for {date}")
+                successful_date = date
                 
+        # Sequential retry for failed crops if we have some data for this date
+        if failed_crops and successful_date:
+            print(f"[Agmarknet API] Retrying {len(failed_crops)} failed crops sequentially...")
+            for crop in failed_crops:
+                time.sleep(1) # Small gap
+                records = _fetch_single_commodity(crop, successful_date, session)
+                if records:
+                    for record in records:
+                        try:
+                            state_name = record.get("state", "Unknown State").title()
+                            district = record.get("district", "Unknown District").title()
+                            market = record.get("market", "State Aggregated").title()
+                            commodity = crop
+                            if commodity == "Paddy(Dhan)(Common)": commodity = "Rice"
+                            arrival_date = _format_agmarknet_date(record.get("arrival_date", ""))
+                            
+                            key = (state_name, district, market, commodity, arrival_date)
+                            if key in seen_keys: continue
+                            seen_keys.add(key)
+
+                            raw_min = record.get("min_price")
+                            raw_max = record.get("max_price")
+                            raw_modal = record.get("modal_price")
+                            if raw_min is None or raw_max is None or raw_modal is None: continue
+
+                            mandi_records_batch.append({
+                                "state": state_name,
+                                "district": district,
+                                "market": market,
+                                "commodity": commodity,
+                                "variety": record.get("variety", ""),
+                                "arrival_date": arrival_date,
+                                "min_price": int(float(raw_min)),
+                                "max_price": int(float(raw_max)),
+                                "modal_price": int(float(raw_modal))
+                            })
+                        except (ValueError, TypeError):
+                            continue
+                break # We got data for a date, stop trying older dates
+            else:
+                print(f"[Agmarknet API] ⚠️ No data found for {date}.")
+
+        if mandi_records_batch:
+            print(f"[Agmarknet API] Executing bulk upsert for {len(mandi_records_batch)} records...")
+            stmt = insert(MandiRate).values(mandi_records_batch)
+            upsert_stmt = stmt.on_conflict_do_update(
+                constraint="uix_mandi_rate", # Aligned with models.py
+                set_={
+                    "min_price": stmt.excluded.min_price,
+                    "max_price": stmt.excluded.max_price,
+                    "modal_price": stmt.excluded.modal_price,
+                    "variety": stmt.excluded.variety,
+                    "updated_at": datetime.utcnow()
+                },
+                where=(stmt.excluded.modal_price > 0)
+            )
+            db.execute(upsert_stmt)
             db.commit()
-            print("[Agmarknet API] Bulk upsert successful.")
-        
+            print("[Agmarknet API] ✅ Bulk upsert successful.")
+
+        # Cleanup: 35-day rolling window
         from sqlalchemy import text
-        print("[Agmarknet API] Executing 35-day rolling cleanup...")
         cleanup_query = text("""
             DELETE FROM mandi_prices 
             WHERE to_date(arrival_date, 'DD/MM/YYYY') < (CURRENT_DATE - INTERVAL '35 days')
         """)
-        result = db.execute(cleanup_query)
+        db.execute(cleanup_query)
         db.commit()
-        print(f"[Agmarknet API] Cleanup complete. Removed {result.rowcount} outdated records.")
+        print("[Agmarknet API] Cleanup complete.")
 
     except Exception as e:
         print(f"[Agmarknet API] CRITICAL FAILURE: {e}")
+        db.rollback()
     finally:
         if close_session:
             db.close()

@@ -2,12 +2,17 @@ name: Daily Mandi Python Fetcher
 
 on:
   schedule:
-    - cron: '30 0 * * *' # Runs at 6:00 AM IST daily
-  workflow_dispatch: # Allows you to manually trigger it
+    # PRIMARY run: 11:00 AM IST (5:30 UTC) — data.gov.in updates around 8-10 AM IST
+    - cron: '30 5 * * *'
+    # RETRY run: 2:00 PM IST (8:30 UTC) — catches days when API updates late
+    - cron: '30 8 * * *'
+  workflow_dispatch:  # Manual trigger anytime
 
 jobs:
   run-python-script:
     runs-on: ubuntu-latest
+    timeout-minutes: 30  # Kill job if it hangs more than 30 min
+
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
@@ -15,17 +20,21 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.10' 
+          python-version: '3.10'
 
       - name: Install Dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt 
+          pip install -r requirements.txt
 
       - name: Run daily Mandi data fetch
         env:
           AGMARKNET_API_KEY: ${{ secrets.AGMARKNET_API_KEY }}
           DATABASE_URL: ${{ secrets.MANDI_DATABASE_URL }}
         run: |
-          cd backend  # <-- This tells GitHub to open the backend folder
+          cd backend
           python -u trigger_manual_fetch.py
+
+      - name: Notify on failure
+        if: failure()
+        run: echo "Mandi fetch failed! Check logs above."

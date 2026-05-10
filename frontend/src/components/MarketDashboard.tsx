@@ -2,7 +2,6 @@ import { useState, useRef, useEffect } from 'react';
 import { Search, TrendingUp, ArrowLeft, Loader2, BookOpen, Truck, Landmark, BarChart3, Volume2, StopCircle, Youtube, User, ExternalLink } from 'lucide-react';
 import MandiInterface from './MandiInterface';
 import ForecastingInterface from './ForecastingInterface';
-import api from '../api';
 
 interface MarketDashboardProps {
     onBack: () => void;
@@ -56,8 +55,12 @@ const MarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashboardPro
         setPlayingText(text);
 
         try {
-            const response = await api.post('/api/chat/tts', { text, language: currentLanguage });
-            const data = response.data;
+            const response = await fetch('/api/chat/tts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text, language: currentLanguage })
+            });
+            const data = await response.json();
             if (data.audio_url) {
                 const audio = new Audio(data.audio_url);
                 audioRef.current = audio;
@@ -73,15 +76,16 @@ const MarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashboardPro
     const fetchGeneric = async (type: string, topic: string) => {
         setIsLoading(true);
         try {
-            const response = await api.post('/api/chat/generate', {
-                type: type,
-                topic: topic,
-                language: currentLanguage
+            const response = await fetch('/api/chat/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ topic, type, language: currentLanguage })
             });
-            return response.data;
+            const data = await response.json();
+            return data;
         } catch (e) {
             console.error(`Failed to fetch ${type}`, e);
-            throw e;
+            return null;
         } finally {
             setIsLoading(false);
         }
