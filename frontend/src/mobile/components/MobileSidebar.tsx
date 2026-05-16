@@ -1,4 +1,4 @@
-import { Home, Sprout, GraduationCap, Settings, ScanLine } from 'lucide-react';
+import { Home, Sprout, GraduationCap, Settings, ScanLine, ShieldAlert } from 'lucide-react';
 import clsx from 'clsx';
 
 interface SidebarProps {
@@ -8,6 +8,7 @@ interface SidebarProps {
         home: string;
         agriculture: string;
         scanner: string;
+        risk: string;
         skills: string;
         settings: string;
     };
@@ -16,8 +17,9 @@ interface SidebarProps {
 const MobileSidebar = ({ activeTab, setActiveTab, labels }: SidebarProps) => {
     const menuItems = [
         { id: 'home', icon: Home, label: labels.home || 'Home' },
-        { id: 'agriculture', icon: Sprout, label: labels.agriculture || 'Agriculture' },
+        { id: 'agriculture', icon: Sprout, label: labels.agriculture || 'Agri' },
         { id: 'scanner', icon: ScanLine, label: labels.scanner || 'Scan' },
+        { id: 'risk', icon: ShieldAlert, label: labels.risk || 'HarvestIQ' },
         { id: 'skills', icon: GraduationCap, label: labels.skills || 'Skills' },
         { id: 'settings', icon: Settings, label: labels.settings || 'Settings' },
     ];

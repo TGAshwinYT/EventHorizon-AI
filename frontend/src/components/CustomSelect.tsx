@@ -30,6 +30,7 @@ const CustomSelect = ({
     const [isOpen, setIsOpen] = useState(false);
     const containerRef = useRef<HTMLDivElement>(null);
     const triggerRef = useRef<HTMLButtonElement>(null);
+    const dropdownRef = useRef<HTMLDivElement>(null);
     const [coords, setCoords] = useState({ top: 0, left: 0, width: 0, openUp: false });
 
     const updateCoords = () => {
@@ -48,15 +49,22 @@ const CustomSelect = ({
         }
     };
 
-    // Close when clicking outside
+    // Close when clicking outside (must check both trigger container AND portal dropdown)
     useEffect(() => {
-        const handleClickOutside = (event: MouseEvent) => {
-            if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        const handleClickOutside = (event: MouseEvent | TouchEvent) => {
+            const target = event.target as Node;
+            const insideTrigger = containerRef.current?.contains(target);
+            const insideDropdown = dropdownRef.current?.contains(target);
+            if (!insideTrigger && !insideDropdown) {
                 setIsOpen(false);
             }
         };
         document.addEventListener('mousedown', handleClickOutside);
-        return () => document.removeEventListener('mousedown', handleClickOutside);
+        document.addEventListener('touchstart', handleClickOutside);
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+            document.removeEventListener('touchstart', handleClickOutside);
+        };
     }, []);
 
     // Prevent body scroll and update position when open
@@ -119,7 +127,7 @@ const CustomSelect = ({
                 type="button"
                 onClick={() => !disabled && setIsOpen(!isOpen)}
                 disabled={disabled}
-                className={`w-full bg-black/40 backdrop-blur-md border border-white/10 rounded-xl px-4 py-3 flex items-center justify-between transition-all outline-none
+                className={`w-full min-w-[160px] bg-black/40 backdrop-blur-md border border-white/10 rounded-xl px-4 py-3 flex items-center justify-between transition-all outline-none
                     ${getAccentClasses()}
                     ${disabled ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}
                 `}
@@ -140,20 +148,21 @@ const CustomSelect = ({
                 <AnimatePresence>
                     {isOpen && (
                         <>
-                            {/* Transparent backdrop to capture events and prevent background scroll/clicks */}
+                            {/* Transparent backdrop — closes dropdown on click, blocks background scroll */}
                             <div 
-                                className="fixed inset-0 z-[9998] cursor-default touch-none"
+                                className="fixed inset-0 z-[9998] cursor-default"
                                 onClick={() => setIsOpen(false)}
                                 onContextMenu={(e) => e.preventDefault()}
                                 onWheel={(e) => {
-                                    e.stopPropagation();
+                                    e.preventDefault();
                                 }}
                                 onTouchMove={(e) => {
-                                    e.stopPropagation();
+                                    e.preventDefault();
                                 }}
                             />
                             
                             <motion.div
+                                ref={dropdownRef}
                                 initial={{ opacity: 0, y: coords.openUp ? 10 : -10, scale: 0.95 }}
                                 animate={{ opacity: 1, y: coords.openUp ? -4 : 4, scale: 1 }}
                                 exit={{ opacity: 0, y: coords.openUp ? 10 : -10, scale: 0.95 }}
@@ -163,13 +172,14 @@ const CustomSelect = ({
                                     top: coords.openUp ? 'auto' : coords.top + 4,
                                     bottom: coords.openUp ? (window.innerHeight - coords.top) + 4 : 'auto',
                                     left: coords.left,
-                                    width: coords.width,
+                                    width: Math.max(coords.width, 220),
+                                    minWidth: 220,
                                 }}
                             >
                                 <div 
                                     className="max-h-[300px] overflow-y-auto custom-scrollbar py-2 overscroll-contain"
+                                    style={{ touchAction: 'pan-y' }}
                                     onWheel={(e) => e.stopPropagation()}
-                                    onTouchMove={(e) => e.stopPropagation()}
                                 >
                                     {options.length === 0 ? (
                                         <div className="px-4 py-3 text-sm text-gray-500 italic">No options available</div>

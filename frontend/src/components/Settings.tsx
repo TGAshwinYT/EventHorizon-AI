@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Save, User, Globe, FileText, Download, Trash2, ArrowLeft } from 'lucide-react';
 import LanguageSelector from './LanguageSelector'; // Reuse existing component
+import CustomSelect from './CustomSelect';
 
 interface Message {
     id: string;
@@ -20,16 +21,41 @@ interface SettingsProps {
     displayName: string | null;
     avatarUrl: string | null;
     token: string | null;
-    onUpdateProfile: (updates: { displayName?: string, avatarUrl?: string }) => void;
+    onUpdateProfile: (updates: { displayName?: string, avatarUrl?: string, location?: { state: string, district: string, mandal: string } }) => void;
     onLogout: () => void;
+    userLocation?: { state: string; district: string; mandal: string } | null;
 }
 
 
-const Settings = ({ onBack, messages, onDeleteMessage, onClearHistory, currentLanguage, onLanguageChange, username, displayName, avatarUrl, token, onUpdateProfile, onLogout }: SettingsProps) => {
+const Settings = ({ onBack, messages, onDeleteMessage, onClearHistory, currentLanguage, onLanguageChange, username, displayName, avatarUrl, token, onUpdateProfile, onLogout, userLocation }: SettingsProps) => {
     const [activeTab, setActiveTab] = useState<'profile' | 'history' | 'language' | 'data'>('profile');
     const [newDisplayName, setNewDisplayName] = useState(displayName || '');
     const [newAvatar] = useState(avatarUrl || '');
     const [status, setStatus] = useState('');
+
+    // Editable Location states
+    const [editState, setEditState] = useState(userLocation?.state || '');
+    const [editDistrict, setEditDistrict] = useState(userLocation?.district || '');
+    const [editMandal, setEditMandal] = useState(userLocation?.mandal || '');
+    const [locationTree, setLocationTree] = useState<Record<string, string[]>>({});
+
+    useEffect(() => {
+        if (userLocation) {
+            setEditState(userLocation.state || '');
+            setEditDistrict(userLocation.district || '');
+            setEditMandal(userLocation.mandal || '');
+        }
+    }, [userLocation]);
+
+    useEffect(() => {
+        fetch('/api/harvestiq/locations')
+            .then(r => r.ok ? r.json() : {})
+            .then(tree => setLocationTree(tree))
+            .catch(() => { /* ignore */ });
+    }, []);
+
+    const states = Object.keys(locationTree).sort();
+    const availableDistricts = editState ? (locationTree[editState] || []) : [];
 
     // Change Password states
     const [currentPwd, setCurrentPwd] = useState('');
@@ -46,11 +72,18 @@ const Settings = ({ onBack, messages, onDeleteMessage, onClearHistory, currentLa
                 },
                 body: JSON.stringify({
                     display_name: newDisplayName,
-                    avatar_url: newAvatar
+                    avatar_url: newAvatar,
+                    state: editState,
+                    district: editDistrict,
+                    mandal: editMandal
                 })
             });
             if (res.ok) {
-                onUpdateProfile({ displayName: newDisplayName, avatarUrl: newAvatar });
+                onUpdateProfile({ 
+                    displayName: newDisplayName, 
+                    avatarUrl: newAvatar,
+                    location: { state: editState, district: editDistrict, mandal: editMandal }
+                });
                 setStatus('Profile updated!');
             } else {
                 setStatus('Failed to update profile');
@@ -210,6 +243,47 @@ const Settings = ({ onBack, messages, onDeleteMessage, onClearHistory, currentLa
                                         <p className="text-xs text-gray-500 mt-2">Personalize how your name appears in the app.</p>
                                     </div>
                                 </div>
+                                
+                                {userLocation !== undefined && (
+                                    <div className="mb-8 border-t border-white/10 pt-6">
+                                        <h4 className="text-lg font-bold mb-4 text-emerald-400">Location Settings</h4>
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                            <div>
+                                                <CustomSelect
+                                                    label="Select State"
+                                                    value={editState}
+                                                    onChange={(v) => { setEditState(v); setEditDistrict(''); }}
+                                                    options={states}
+                                                    placeholder="Search state..."
+                                                />
+                                            </div>
+                                            <div>
+                                                <CustomSelect
+                                                    label="Select District"
+                                                    value={editDistrict}
+                                                    onChange={setEditDistrict}
+                                                    options={availableDistricts}
+                                                    placeholder={editState ? "Search district..." : "Select a state first"}
+                                                    disabled={!editState || availableDistricts.length === 0}
+                                                />
+                                            </div>
+                                            <div>
+                                                <div className="space-y-1">
+                                                    <label className="block text-sm text-gray-400 mb-[4px] ml-1 font-medium">Mandal / Taluk</label>
+                                                    <input
+                                                        type="text"
+                                                        value={editMandal}
+                                                        onChange={(e) => setEditMandal(e.target.value)}
+                                                        placeholder="Enter your Mandal or Taluk..."
+                                                        className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-[13px] text-white outline-none focus:border-emerald-500/50 transition-colors"
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <p className="text-xs text-gray-500 mt-3">Your location is used for regional agricultural insights.</p>
+                                    </div>
+                                )}
+
                                 <button
                                     onClick={handleSaveProfile}
                                     className="px-8 py-3 bg-blue-600 hover:bg-blue-500 rounded-xl font-bold border border-blue-400/30 transition-all flex items-center gap-2"

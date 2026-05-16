@@ -15,7 +15,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from app.routers import chat, market, voice, auth, weather, voice_pipeline, scanner
+from app.routers import chat, market, voice, auth, weather, voice_pipeline, scanner, harvestiq, satellite
 from app.database import auth_engine, mandi_engine, AuthBase, MandiBase
 
 ml_models = {}
@@ -133,6 +133,11 @@ app.include_router(weather.router, prefix='/api/weather', tags=["Weather"])
 app.include_router(voice_pipeline.router, tags=["Voice Pipeline"])
 # Visual Diagnostic Scanner (crop disease diagnosis from images)
 app.include_router(scanner.router, prefix='/api/scanner', tags=["Scanner"])
+
+# HarvestIQ — full agricultural risk REST API
+app.include_router(harvestiq.router)
+# Satellite NDVI — NASA MODIS vegetation health
+app.include_router(satellite.router, prefix='/api/satellite', tags=["Satellite"])
 
 @app.get('/')
 async def root():

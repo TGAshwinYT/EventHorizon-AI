@@ -5,6 +5,7 @@ import MobileMarketDashboard from './components/MobileMarketDashboard';
 import MobileSkillsDashboard from './components/MobileSkillsDashboard';
 import MobileSettings from './components/MobileSettings';
 import MobileVisualScanner from './components/MobileVisualScanner';
+import MobileRiskDashboard from './components/MobileRiskDashboard';
 import Auth from '../components/Auth';
 import { AlertCircle } from 'lucide-react';
 import ChatBox from '../components/ChatBox';
@@ -37,7 +38,7 @@ function MobileApp() {
         localStorage.setItem('language', language);
     }, [language]);
     const [connectionError, setConnectionError] = useState(false);
-    const [activeTab, setActiveTab] = useState<'home' | 'agriculture' | 'scanner' | 'skills' | 'settings'>('home');
+    const [activeTab, setActiveTab] = useState<'home' | 'agriculture' | 'scanner' | 'risk' | 'skills' | 'settings'>('home');
 
     const [courses, setCourses] = useState<any[]>([]);
     const [messages, setMessages] = useState<Message[]>([]);
@@ -145,7 +146,7 @@ function MobileApp() {
 
     const uiStrings: { [key: string]: any } = {
         en: {
-            listening: 'Listening...', thinking: 'Thinking...', speaking: 'Speaking...', tapToSpeak: 'Tap to Speak', tapToStop: 'Tap to Stop', scanner: 'Scan',
+            listening: 'Listening...', thinking: 'Thinking...', speaking: 'Speaking...', tapToSpeak: 'Tap to Speak', tapToStop: 'Tap to Stop', scanner: 'Scan', risk: 'Risk', riskAssessment: 'Risk Assessment',
             home: 'Home', agriculture: 'Agriculture', skills: 'Skills', settings: 'Settings',
             marketHeader: 'Market Intelligence', skillsHeader: 'Agricultural Education',
             rates: 'Mandi Rates', vehicles: 'Agriculture Vehicles', schemes: 'Govt Schemes', marketing: 'Marketing & Success', advice: 'Cultivation Advice',
@@ -390,6 +391,12 @@ function MobileApp() {
                     </div>
                 ) : activeTab === 'scanner' ? (
                     <MobileVisualScanner language={language} token={token} onBack={() => setActiveTab('home')} />
+                ) : activeTab === 'risk' ? (
+                    <MobileRiskDashboard
+                        onBack={() => setActiveTab('home')}
+                        currentLanguage={language}
+                        labels={currentUI}
+                    />
                 ) : activeTab === 'agriculture' ? (
                     <MobileMarketDashboard
                         onBack={() => setActiveTab('home')}
@@ -437,6 +444,7 @@ function MobileApp() {
                     home: currentUI.home || 'Home',
                     agriculture: currentUI.agriculture || 'Agri',
                     scanner: currentUI.scanner || 'Scan',
+                    risk: currentUI.risk || 'Risk',
                     skills: currentUI.skills || 'Skills',
                     settings: currentUI.settings || 'Settings'
                 }}

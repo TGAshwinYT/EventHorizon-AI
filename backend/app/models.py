@@ -13,6 +13,14 @@ class User(AuthBase):
     avatar_url = Column(Text, nullable=True)
     api_key_gemini = Column(String, nullable=True)
     api_key_huggingface = Column(String, nullable=True)
+    
+    # Onboarding & Profile Info
+    language = Column(String, nullable=True)
+    state = Column(String, nullable=True)
+    district = Column(String, nullable=True)
+    mandal = Column(String, nullable=True)
+    onboarding_completed = Column(Integer, default=0) # Using Integer as Boolean for SQLite compatibility (0=False, 1=True)
+
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

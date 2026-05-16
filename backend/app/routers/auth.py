@@ -80,6 +80,11 @@ def reset_password(data: ResetPasswordRequest):
 class UpdateProfileRequest(BaseModel):
     display_name: str | None = None
     avatar_url: str | None = None
+    language: str | None = None
+    state: str | None = None
+    district: str | None = None
+    mandal: str | None = None
+    onboarding_completed: bool | None = None
 
 class ChangePasswordRequest(BaseModel):
     current_password: str
@@ -110,7 +115,12 @@ def get_profile(authorization: str = Header(None)):
         user_data = {
             "username": user.username,
             "display_name": user.display_name,
-            "avatar_url": user.avatar_url
+            "avatar_url": user.avatar_url,
+            "language": user.language,
+            "state": user.state,
+            "district": user.district,
+            "mandal": user.mandal,
+            "onboarding_completed": bool(user.onboarding_completed)
         }
         db.close()
         return user_data
@@ -139,6 +149,16 @@ def update_profile(data: UpdateProfileRequest, authorization: str = Header(None)
             user.display_name = data.display_name
         if data.avatar_url is not None:
             user.avatar_url = data.avatar_url
+        if data.language is not None:
+            user.language = data.language
+        if data.state is not None:
+            user.state = data.state
+        if data.district is not None:
+            user.district = data.district
+        if data.mandal is not None:
+            user.mandal = data.mandal
+        if data.onboarding_completed is not None:
+            user.onboarding_completed = 1 if data.onboarding_completed else 0
             
         db.commit()
         db.refresh(user)
@@ -146,7 +166,12 @@ def update_profile(data: UpdateProfileRequest, authorization: str = Header(None)
         user_data = {
             "username": user.username,
             "display_name": user.display_name,
-            "avatar_url": user.avatar_url
+            "avatar_url": user.avatar_url,
+            "language": user.language,
+            "state": user.state,
+            "district": user.district,
+            "mandal": user.mandal,
+            "onboarding_completed": bool(user.onboarding_completed)
         }
         db.close()
         return {"message": "Profile updated successfully", "user": user_data}

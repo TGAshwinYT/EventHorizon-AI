@@ -6,7 +6,9 @@ import MarketDashboard from './components/MarketDashboard';
 import SkillsDashboard from './components/SkillsDashboard';
 import Settings from './components/Settings';
 import VisualScanner from './components/VisualScanner';
+import RiskDashboard from './components/RiskDashboard';
 import Auth from './components/Auth';
+import Onboarding from './components/Onboarding';
 import { AlertCircle } from 'lucide-react';
 import ChatBox from './components/ChatBox';
 import InteractiveAIInput from './components/InteractiveAIInput';
@@ -22,6 +24,7 @@ interface Message {
 interface ProfileUpdate {
     displayName?: string;
     avatarUrl?: string;
+    location?: { state: string, district: string, mandal: string };
 }
 
 function App() {
@@ -33,13 +36,26 @@ function App() {
     const [voiceStatus, setVoiceStatus] = useState<'idle' | 'listening' | 'thinking' | 'speaking'>('idle');
 
     const [language, setLanguage] = useState(localStorage.getItem('language') || 'en');
+    const [onboardingCompleted, setOnboardingCompleted] = useState<boolean | null>(null);
+    const [userLocation, setUserLocation] = useState<{state: string, district: string, mandal: string} | null>(null);
 
-    // Save language preference whenever it changes
-    useEffect(() => {
-        localStorage.setItem('language', language);
-    }, [language]);
+    // Persistent language change
+    const handleLanguageChange = (newLang: string) => {
+        setLanguage(newLang);
+        localStorage.setItem('language', newLang);
+        if (token) {
+            fetch('/api/auth/profile', {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ language: newLang })
+            }).catch(console.error);
+        }
+    };
     const [connectionError, setConnectionError] = useState(false);
-    const [activeTab, setActiveTab] = useState<'home' | 'agriculture' | 'scanner' | 'skills' | 'settings'>('home');
+    const [activeTab, setActiveTab] = useState<'home' | 'agriculture' | 'scanner' | 'risk' | 'skills' | 'settings'>('home');
 
     const [courses, setCourses] = useState<any[]>([]);
     const [messages, setMessages] = useState<Message[]>([]);
@@ -121,8 +137,24 @@ function App() {
                             // Silently handle quota exceeded for large avatar images
                         }
                     }
+                    if (profileJson.onboarding_completed !== undefined) {
+                        setOnboardingCompleted(profileJson.onboarding_completed);
+                    }
+                    if (profileJson.language) {
+                        setLanguage(profileJson.language);
+                    }
+                    if (profileJson.state && profileJson.district) {
+                        setUserLocation({
+                            state: profileJson.state,
+                            district: profileJson.district,
+                            mandal: profileJson.mandal || ''
+                        });
+                    }
                 })
-                .catch(err => console.error("Failed to fetch profile:", err));
+                .catch(err => {
+                    console.error("Failed to fetch profile:", err);
+                    setOnboardingCompleted(true); // default to true on error so we don't lock out
+                });
 
             // Fetch Courses asynchronously
             fetch(`/api/market/courses?language=${language}`)
@@ -163,7 +195,7 @@ function App() {
     // Localization for UI status messages & Navigation
     const uiStrings: { [key: string]: any } = {
         en: {
-            listening: 'Listening...', thinking: 'Thinking...', speaking: 'Speaking...', tapToSpeak: 'Tap the Orb to Speak', tapToStop: 'Tap to Stop', scanner: 'Scan',
+            listening: 'Listening...', thinking: 'Thinking...', speaking: 'Speaking...', tapToSpeak: 'Tap the Orb to Speak', tapToStop: 'Tap to Stop', scanner: 'Scan', risk: 'Risk', riskAssessment: 'Risk Assessment',
             home: 'Home', agriculture: 'Agriculture', skills: 'Skills', settings: 'Settings',
             marketHeader: 'Market Intelligence', skillsHeader: 'Agricultural Education',
             rates: 'Mandi Rates', vehicles: 'Agriculture Vehicles', schemes: 'Govt Schemes', marketing: 'Marketing & Success', advice: 'Cultivation Advice',
@@ -561,6 +593,19 @@ function App() {
         );
     }
 
+    if (token && onboardingCompleted === false) {
+        return (
+            <Onboarding 
+                token={token} 
+                onComplete={(data) => {
+                    setOnboardingCompleted(true);
+                    setLanguage(data.language);
+                    setUserLocation(data);
+                }} 
+            />
+        );
+    }
+
     return (
         <div className="flex h-screen w-full bg-slate-950 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-slate-950 to-black text-slate-50 font-sans overflow-hidden antialiased">
             <Sidebar
@@ -570,6 +615,7 @@ function App() {
                     home: currentUI.home,
                     agriculture: currentUI.agriculture,
                     scanner: currentUI.scanner || 'Scan',
+                    risk: currentUI.risk || 'Risk',
                     skills: currentUI.skills,
                     settings: currentUI.settings
                 }}
@@ -581,7 +627,6 @@ function App() {
                         <img src="/logo.png" alt="Logo" className="w-10 h-10 rounded-full" />
                         <div className="text-xl font-semibold text-white/50">EventHorizon <span className="text-gray-500 font-normal">AI</span></div>
                     </div>
-                    <LanguageSelector currentLanguage={language} onLanguageChange={setLanguage} />
                 </header>
 
                 {connectionError && (
@@ -652,6 +697,14 @@ function App() {
                         token={token}
                         onBack={() => setActiveTab('home')}
                     />
+                ) : activeTab === 'risk' ? (
+                    <RiskDashboard
+                        onBack={() => setActiveTab('home')}
+                        currentLanguage={language}
+                        labels={currentUI}
+                        defaultState={userLocation?.state}
+                        defaultDistrict={userLocation?.district}
+                    />
                 ) : activeTab === 'agriculture' ? (
                     <MarketDashboard
                         onBack={() => setActiveTab('home')}
@@ -679,11 +732,12 @@ function App() {
                         onDeleteMessage={deleteMessage}
                         onClearHistory={clearHistory}
                         currentLanguage={language}
-                        onLanguageChange={setLanguage}
+                        onLanguageChange={handleLanguageChange}
                         username={username}
                         displayName={displayName}
                         avatarUrl={avatarUrl}
                         token={token}
+                        userLocation={userLocation}
                         onUpdateProfile={async (updates: ProfileUpdate) => {
                             if (updates.displayName !== undefined) {
                                 setDisplayName(updates.displayName);
@@ -696,6 +750,9 @@ function App() {
                                 } catch (e) {
                                     // Silently handle quota exceeded
                                 }
+                            }
+                            if (updates.location !== undefined) {
+                                setUserLocation(updates.location);
                             }
                         }}
                         onLogout={handleLogout}
