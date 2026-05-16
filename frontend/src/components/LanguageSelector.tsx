@@ -40,7 +40,7 @@ const LanguageSelector = ({ currentLanguage, onLanguageChange }: LanguageSelecto
                         className="fixed inset-0 z-40"
                         onClick={() => setIsOpen(false)}
                     />
-                    <div className="absolute top-full right-0 mt-2 w-48 py-2 rounded-xl glass-panel border border-white/10 z-50">
+                    <div className="absolute top-full left-0 mt-2 w-48 py-2 rounded-xl glass-panel border border-white/10 z-[100]">
                         {languages.map((lang) => (
                             <button
                                 key={lang.code}

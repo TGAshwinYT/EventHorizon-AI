@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import MobileSidebar from './components/MobileSidebar';
-import LanguageSelector from '../components/LanguageSelector';
+
 import MobileMarketDashboard from './components/MobileMarketDashboard';
 import MobileSkillsDashboard from './components/MobileSkillsDashboard';
 import MobileSettings from './components/MobileSettings';
@@ -329,7 +329,7 @@ function MobileApp() {
                         <img src="/logo.png" alt="Logo" className="w-8 h-8 rounded-full" />
                         <div className="text-lg font-semibold text-white/50">EventHorizon</div>
                     </div>
-                    <LanguageSelector currentLanguage={language} onLanguageChange={setLanguage} />
+
                 </header>
 
                 {connectionError && (

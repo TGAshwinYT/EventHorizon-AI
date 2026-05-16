@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import Sidebar from './components/Sidebar';
-import LanguageSelector from './components/LanguageSelector';
+
 
 import MarketDashboard from './components/MarketDashboard';
 import SkillsDashboard from './components/SkillsDashboard';

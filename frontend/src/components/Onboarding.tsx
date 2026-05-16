@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Globe, MapPin, Loader2, ArrowRight, CheckCircle2 } from 'lucide-react';
 import CustomSelect from './CustomSelect';
 
