@@ -83,10 +83,9 @@ class RivaASRService:
         return "", language_hint
 
     async def _groq_transcribe(self, audio_bytes: bytes, lang: str) -> Tuple[str, str]:
-        # We deliberately OMIT the language constraint and prompt here.
-        # Forcing `language="ta"` while speaking Tanglish causes Whisper-large-v3 to hallucinate
-        # phonetic gibberish (e.g., "Apesarata milo ngopurida"). By omitting it, the model
-        # perfectly auto-detects Tamil, English, or Tanglish natively.
+        # We pass the `language` constraint here so Whisper doesn't try to force
+        # Tamil audio into English words (which causes hallucinations like "piece of the pretty down").
+        # However, we DO NOT pass the Romanization prompt, allowing it to output native Tamil script.
         
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(
@@ -95,7 +94,8 @@ class RivaASRService:
                 files={"file": ("audio.webm", audio_bytes, "audio/webm")},
                 data={
                     "model": "whisper-large-v3-turbo", 
-                    "response_format": "verbose_json"
+                    "response_format": "verbose_json",
+                    "language": lang
                 },
             )
             if resp.status_code == 200:
