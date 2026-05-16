@@ -94,8 +94,7 @@ class RivaASRService:
                 files={"file": ("audio.webm", audio_bytes, "audio/webm")},
                 data={
                     "model": "whisper-large-v3-turbo", 
-                    "response_format": "verbose_json",
-                    "language": lang
+                    "response_format": "verbose_json"
                 },
             )
             if resp.status_code == 200:

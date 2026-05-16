@@ -261,12 +261,12 @@ async def chat_endpoint(request: Request):
         ai_response = gemini_service.generate_response(message=user_message, audio_data=None, audio_mime_type=None, context=context, use_search=use_search_flag, history=trimmed_history)
         print(f"[GEMINI] Response: {ai_response}")
         
-        # DETECT language of user speech to use for Text-to-Speech
-        detected_lang = detect_language(user_message, 'en')
+        # Use the language explicitly selected in the UI for TTS and AI response
+        detected_lang = target_lang
         
     elif user_message:
-        # Text Flow - detect language entirely from user input
-        detected_lang = detect_language(user_message, 'en')
+        # Text Flow - use the language explicitly selected in the UI
+        detected_lang = target_lang
         detected_lang_name = LANGUAGE_NAMES.get(detected_lang, 'English')
         
         final_query_text = user_message

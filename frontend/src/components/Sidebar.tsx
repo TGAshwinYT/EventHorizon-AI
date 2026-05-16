@@ -20,7 +20,7 @@ const Sidebar = ({ activeTab, setActiveTab, labels }: SidebarProps) => {
         { id: 'agriculture', icon: Sprout, label: labels.agriculture || 'Agriculture' },
         { id: 'scanner', icon: ScanLine, label: labels.scanner || 'Scan' },
         { id: 'risk', icon: ShieldAlert, label: labels.risk || 'HarvestIQ' },
-        { id: 'skills', icon: GraduationCap, label: labels.skills || 'Skills' },
+
         { id: 'settings', icon: Settings, label: labels.settings || 'Settings' },
     ];
 
@@ -43,7 +43,7 @@ const Sidebar = ({ activeTab, setActiveTab, labels }: SidebarProps) => {
                         const isActive = activeTab === item.id;
                         const getIconFill = () => {
                             if (item.id === 'home') return "currentColor";
-                            if (item.id === 'agriculture' || item.id === 'skills') return "url(#icon-gradient)";
+                            if (item.id === 'agriculture') return "url(#icon-gradient)";
                             return "currentColor";
                         };
 

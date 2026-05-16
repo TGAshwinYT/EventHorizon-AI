@@ -117,11 +117,7 @@ const MobileMarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashbo
                 <p className="text-gray-400 text-xs leading-tight">{labels.ratesDesc || "Check daily market prices for crops in your mandi."}</p>
             </div>
 
-            <div onClick={() => setView('vehicles')} className="glass-panel p-4 rounded-2xl cursor-pointer hover:bg-white/10 transition-all border-blue-500/20 group">
-                <Truck className="w-8 h-8 text-blue-400 mb-3 group-hover:scale-110 transition-transform" />
-                <h3 className="text-lg font-bold mb-1">{labels.vehicles}</h3>
-                <p className="text-gray-400 text-xs leading-tight">{labels.vehiclesDesc || "Tractors, harvesters, and transport vehicle prices."}</p>
-            </div>
+
 
             <div onClick={() => setView('schemes')} className="glass-panel p-4 rounded-2xl cursor-pointer hover:bg-white/10 transition-all border-amber-500/20 group">
                 <Landmark className="w-8 h-8 text-amber-400 mb-3 group-hover:scale-110 transition-transform" />

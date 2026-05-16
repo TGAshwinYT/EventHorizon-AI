@@ -20,7 +20,7 @@ const MobileSidebar = ({ activeTab, setActiveTab, labels }: SidebarProps) => {
         { id: 'agriculture', icon: Sprout, label: labels.agriculture || 'Agri' },
         { id: 'scanner', icon: ScanLine, label: labels.scanner || 'Scan' },
         { id: 'risk', icon: ShieldAlert, label: labels.risk || 'HarvestIQ' },
-        { id: 'skills', icon: GraduationCap, label: labels.skills || 'Skills' },
+
         { id: 'settings', icon: Settings, label: labels.settings || 'Settings' },
     ];
 
@@ -39,7 +39,7 @@ const MobileSidebar = ({ activeTab, setActiveTab, labels }: SidebarProps) => {
                 const isActive = activeTab === item.id;
                 const getIconFill = () => {
                     if (item.id === 'home' || item.id === 'settings' || item.id === 'scanner') return "currentColor";
-                    if (item.id === 'agriculture' || item.id === 'skills') return "url(#icon-gradient-mobile)";
+                    if (item.id === 'agriculture') return "url(#icon-gradient-mobile)";
                     return "currentColor";
                 };
 

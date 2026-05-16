@@ -117,11 +117,7 @@ const MarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashboardPro
                 <p className="text-gray-400 text-sm">{labels.ratesDesc || "Check daily market prices for crops in your mandi."}</p>
             </div>
 
-            <div onClick={() => setView('vehicles')} className="glass-panel p-6 rounded-3xl cursor-pointer hover:bg-white/10 transition-all border-blue-500/20 group">
-                <Truck className="w-10 h-10 text-blue-400 mb-4 group-hover:scale-110 transition-transform" />
-                <h3 className="text-xl font-bold mb-2">{labels.vehicles}</h3>
-                <p className="text-gray-400 text-sm">{labels.vehiclesDesc || "Tractors, harvesters, and transport vehicle prices."}</p>
-            </div>
+
 
             <div onClick={() => setView('schemes')} className="glass-panel p-6 rounded-3xl cursor-pointer hover:bg-white/10 transition-all border-amber-500/20 group">
                 <Landmark className="w-10 h-10 text-amber-400 mb-4 group-hover:scale-110 transition-transform" />
