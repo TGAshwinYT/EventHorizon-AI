@@ -8,6 +8,7 @@ Generates audio from text sentences, returns MP3/Opus bytes.
 import os
 import io
 import re
+import wave
 import asyncio
 import logging
 from typing import Optional, cast, Dict, Any
@@ -98,11 +99,22 @@ class RivaTTSService:
     # Tier 1: Gemini 3 Flash TTS
     # -----------------------------------------------------------------------
 
+    @staticmethod
+    def pcm_to_wav(pcm_bytes: bytes, sample_rate: int = 24000, channels: int = 1, sample_width: int = 2) -> bytes:
+        """Wrap raw 16-bit Linear PCM bytes inside a standard, playable WAV container."""
+        wav_io = io.BytesIO()
+        with wave.open(wav_io, "wb") as wav_file:
+            wav_file.setnchannels(channels)
+            wav_file.setsampwidth(sample_width)
+            wav_file.setframerate(sample_rate)
+            wav_file.writeframes(pcm_bytes)
+        return wav_io.getvalue()
+
     async def _gemini_synthesize(self, text: str, language: str) -> Optional[bytes]:
         """Synthesize via Gemini 3 Flash REST API."""
         # Using gemini-2.5-flash as the primary fast multimodal model for generation
         # We instruct Gemini to speak the provided text in the requested language
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={GEMINI_API_KEY}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-tts-preview:generateContent?key={GEMINI_API_KEY}"
         
         # We instruct Gemini to speak the provided text in the requested language
         # For voices: Aoede, Puck, Charon, Kore, Fenrir
@@ -136,7 +148,9 @@ class RivaTTSService:
                 for part in parts:
                     if "inlineData" in part and part["inlineData"]["mimeType"].startswith("audio"):
                         audio_b64 = part["inlineData"]["data"]
-                        return base64.b64decode(audio_b64)
+                        raw_pcm = base64.b64decode(audio_b64)
+                        # Pack raw PCM to WAV container
+                        return self.pcm_to_wav(raw_pcm)
             except (KeyError, IndexError) as e:
                 raise Exception(f"Failed to parse Gemini response for audio: {e}")
                 
@@ -160,7 +174,7 @@ class RivaTTSService:
         }
         
         try:
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with httpx.AsyncClient(timeout=40.0) as client:
                 resp = await client.post(join_url, json=payload)
                 if resp.status_code != 200:
                     logger.error(f"[TTS/IndicParler] Failed to join queue: {resp.text}")
@@ -172,8 +186,8 @@ class RivaTTSService:
                 data_url = f"{space_url}/gradio_api/queue/data?session_hash={session_hash}"
                 audio_url = None
                 
-                # Set a budget of 25 seconds for generation
-                async with client.stream("GET", data_url, timeout=25.0) as r:
+                # Set a budget of 40 seconds for generation
+                async with client.stream("GET", data_url, timeout=40.0) as r:
                     async for line in r.aiter_lines():
                         if line.startswith("data:"):
                             event_data = json.loads(line[5:])
@@ -197,7 +211,7 @@ class RivaTTSService:
                     return None
                     
                 # Download audio
-                audio_resp = await client.get(audio_url, timeout=15.0)
+                audio_resp = await client.get(audio_url, timeout=20.0)
                 if audio_resp.status_code == 200:
                     return audio_resp.content
                     

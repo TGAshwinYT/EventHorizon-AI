@@ -171,6 +171,26 @@ export default function MobileRiskDashboard({ onBack, currentLanguage, labels }:
         if (!selectedState && !gpsCoords) return;
         let cancelled = false;
         const doFetch = async () => {
+            // Compute cache key for mobile
+            const cacheKey = `hiq_${selectedCrop}_${
+                locMethod === 'gps' && gpsCoords 
+                    ? `gps_${gpsCoords.lat.toFixed(4)}_${gpsCoords.lon.toFixed(4)}` 
+                    : `${selectedState}_${selectedDistrict}`
+            }_${labels?.lang || 'en'}`;
+
+            // Check sessionStorage
+            try {
+                const cached = sessionStorage.getItem(cacheKey);
+                if (cached) {
+                    const parsed = JSON.parse(cached);
+                    setData(parsed);
+                    setLoading(false);
+                    return;
+                }
+            } catch (e) {
+                console.warn("[HarvestIQ] Failed to read from sessionStorage:", e);
+            }
+
             setLoading(true); setError(null);
             try {
                 const payload: any = { crop_name: selectedCrop, lang: labels?.lang || 'en' };
@@ -184,7 +204,16 @@ export default function MobileRiskDashboard({ onBack, currentLanguage, labels }:
                 });
                 if (!r.ok) throw new Error();
                 const json: RiskData = await r.json();
-                if (!cancelled) setData(json);
+                
+                if (!cancelled) {
+                    setData(json);
+                    // Save to sessionStorage
+                    try {
+                        sessionStorage.setItem(cacheKey, JSON.stringify(json));
+                    } catch (e) {
+                        console.warn("[HarvestIQ] Failed to write to sessionStorage:", e);
+                    }
+                }
             } catch {
                 if (!cancelled) setError('Failed to fetch data');
             } finally {

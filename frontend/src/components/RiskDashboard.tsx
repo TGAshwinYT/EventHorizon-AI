@@ -236,6 +236,26 @@ export default function RiskDashboard({ onBack, currentLanguage, labels, default
 
         let cancelled = false;
         const doFetch = async () => {
+            // Compute a precise cache key based on crop, location, and language
+            const cacheKey = `hiq_${selectedCrop}_${
+                locationMethod === 'gps' && gpsCoords 
+                    ? `gps_${gpsCoords.lat.toFixed(4)}_${gpsCoords.lon.toFixed(4)}` 
+                    : `${selectedState}_${selectedDistrict}`
+            }_${currentLanguage || 'en'}`;
+
+            // Check if we have cached results in sessionStorage
+            try {
+                const cached = sessionStorage.getItem(cacheKey);
+                if (cached) {
+                    const parsed = JSON.parse(cached);
+                    setData(parsed);
+                    setLoading(false);
+                    return;
+                }
+            } catch (e) {
+                console.warn("[HarvestIQ] Failed to read from sessionStorage:", e);
+            }
+
             setLoading(true);
             setError(null);
             try {
@@ -260,7 +280,16 @@ export default function RiskDashboard({ onBack, currentLanguage, labels, default
                 });
                 if (!res.ok) throw new Error(`Server returned ${res.status}`);
                 const json: RiskData = await res.json();
-                if (!cancelled) setData(json);
+                
+                if (!cancelled) {
+                    setData(json);
+                    // Save to sessionStorage cache
+                    try {
+                        sessionStorage.setItem(cacheKey, JSON.stringify(json));
+                    } catch (e) {
+                        console.warn("[HarvestIQ] Failed to write to sessionStorage:", e);
+                    }
+                }
             } catch (err: any) {
                 if (!cancelled) setError(err.message || 'Failed to fetch risk data');
             } finally {

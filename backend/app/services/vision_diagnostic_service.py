@@ -191,7 +191,8 @@ class VisionDiagnosticService:
                 audio_bytes = await riva_tts_service.synthesize(tts_text, language, "mp3")
                 if audio_bytes:
                     audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
-                    result["audio_url"] = f"data:audio/mp3;base64,{audio_b64}"
+                    mime = "audio/wav" if audio_bytes.startswith(b"RIFF") else "audio/mp3"
+                    result["audio_url"] = f"data:{mime};base64,{audio_b64}"
                     logger.info(f"[Vision] TTS: {len(audio_bytes)} bytes")
             except Exception as e:
                 logger.warning(f"[Vision] TTS failed: {e}")

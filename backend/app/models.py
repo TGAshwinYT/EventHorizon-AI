@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Text, DateTime, Date, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.database import AuthBase, MandiBase
@@ -46,15 +46,12 @@ class MandiRate(MandiBase):
     market = Column(String, index=True)
     commodity = Column(String, index=True)
     variety = Column(String, nullable=True)
-    arrival_date = Column(String)  # Storing as string "DD/MM/YYYY" or ISO from source
+    arrival_date = Column(Date)  # Storing as Date type
     
     min_price = Column(Integer)
     max_price = Column(Integer)
     modal_price = Column(Integer)
     
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
     # Unique Constraint to prevent duplicates for the same market/commodity/date
     __table_args__ = (
         UniqueConstraint('state', 'district', 'market', 'commodity', 'arrival_date', name='uix_mandi_rate'),

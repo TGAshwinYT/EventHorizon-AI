@@ -35,7 +35,7 @@ import httpx
 from datetime import datetime
 
 async def fetch_datagov_prices(crop: str, state: str, district: str = None):
-    datagov_key = os.getenv("DATAGOV_API_KEY")
+    datagov_key = os.getenv("DATAGOV_API_KEY") or os.getenv("AGMARKNET_API_KEY") or os.getenv("OGD_API_KEY")
     if not datagov_key:
         return None
         
@@ -60,7 +60,10 @@ async def fetch_datagov_prices(crop: str, state: str, district: str = None):
     if district and district != "All Districts":
         params["filters[district]"] = district
         
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    async with httpx.AsyncClient(timeout=10.0, headers=headers) as client:
         try:
             resp = await client.get(url, params=params)
             resp.raise_for_status()

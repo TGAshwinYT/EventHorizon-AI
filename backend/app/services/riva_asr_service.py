@@ -76,6 +76,26 @@ def detect_language_from_text(text: str, groq_detected: str = "en") -> str:
     return groq_detected
 
 
+# Common Whisper hallucinations on silent/noisy audio
+WHISPER_HALLUCINATIONS = {
+    "thank you for watching",
+    "thanks for watching",
+    "thank you",
+    "subscribe",
+    "like and subscribe",
+    "please subscribe",
+    "bye",
+    "you",
+    "...",
+    " சந்தேகம் இல்லை",
+    "இது ஒரு",
+    "நன்றி",
+    "धन्यवाद",
+    "subtitles by",
+    "amara.org",
+}
+
+
 class RivaASRService:
     """
     Multi-tier ASR:
@@ -102,6 +122,18 @@ class RivaASRService:
         if not self._groq_available:
             logger.warning("[ASR] GROQ_API_KEY not set! Only local Whisper fallback available.")
 
+    def _is_hallucination(self, text: str) -> bool:
+        """Check if the transcription is a known Whisper hallucination."""
+        clean = text.strip().lower().rstrip(".,!?。")
+        if clean in WHISPER_HALLUCINATIONS:
+            logger.warning(f"[ASR] Rejected hallucination: '{text}'")
+            return True
+        # Very short single-word outputs are usually noise
+        if len(clean) <= 1:
+            logger.warning(f"[ASR] Rejected too-short output: '{text}'")
+            return True
+        return False
+
     async def transcribe(self, audio_bytes: bytes) -> Tuple[str, str]:
         """
         Transcribe audio with automatic language detection.
@@ -124,18 +156,18 @@ class RivaASRService:
         if self._groq_available:
             try:
                 text, lang = await self._groq_transcribe(audio_bytes)
-                if text.strip():
+                if text.strip() and not self._is_hallucination(text):
                     logger.info(f"[ASR/Groq] ✓ lang={lang} | text={text[:80]}")
                     return text.strip(), lang
                 else:
-                    logger.warning("[ASR/Groq] Empty transcript returned.")
+                    logger.warning("[ASR/Groq] Empty or hallucinated transcript returned.")
             except Exception as e:
                 logger.warning(f"[ASR/Groq] Failed: {e} — falling back to local Whisper.")
 
         # Tier 2: Local Whisper tiny
         try:
             text, lang = self._local_transcribe(audio_bytes)
-            if text.strip():
+            if text.strip() and not self._is_hallucination(text):
                 logger.info(f"[ASR/Local] ✓ lang={lang} | text={text[:80]}")
                 return text.strip(), lang
         except Exception as e:
@@ -152,17 +184,19 @@ class RivaASRService:
         - 'language' field is NOT sent → Whisper auto-detects
         - We read 'language' from the verbose_json response
         - We run second-pass Unicode verification on the result
-        - We use a GENERIC grounding prompt (not language-specific)
-          because we don't know the language yet!
+        - Prompt is PRIOR TRANSCRIPT CONTEXT, not instructions
+          (Whisper treats it as text that preceded the audio)
         """
-        # Generic multilingual grounding prompt
-        # This tells Whisper the domain (agriculture + personal assistant)
-        # without forcing any specific language
-        generic_prompt = (
-            "This is a conversation with an AI assistant about farming, agriculture, "
-            "or general personal queries. The speaker may use Tamil, Telugu, Hindi, "
-            "Kannada, Malayalam, Bengali, Marathi, Punjabi, English, or a mix like "
-            "Tanglish or Hinglish. Transcribe exactly as spoken."
+        # Whisper's `prompt` parameter is NOT for instructions — it is a textual
+        # primer that the model assumes appeared BEFORE the audio. We provide a
+        # short, multi-script grounding snippet that anchors the model to the
+        # correct domain and mixed-language context. This drastically reduces
+        # hallucinations and wrong-language transcriptions.
+        grounding_prompt = (
+            "வணக்கம், நான் விவசாயம் பற்றி கேக்கிறேன். "
+            "नमस्ते, मैं खेती के बारे में पूछ रहा हूँ। "
+            "Hello, I am asking about farming and agriculture. "
+            "crop, soil, market price, weather, irrigation, pesticide."
         )
 
         async with httpx.AsyncClient(timeout=30.0) as client:
@@ -176,7 +210,7 @@ class RivaASRService:
                     "model": "whisper-large-v3-turbo",
                     "response_format": "verbose_json",
                     # NO 'language' field → true auto-detection
-                    "prompt": generic_prompt,
+                    "prompt": grounding_prompt,
                     "temperature": "0.0",
                 },
             )
@@ -201,6 +235,8 @@ class RivaASRService:
                 f"[ASR] Language corrected by Unicode check: "
                 f"{detected_lang} → {verified_lang}"
             )
+
+        logger.info(f"[ASR/Groq] Groq detected='{groq_lang}' → code='{detected_lang}' → verified='{verified_lang}'")
 
         return raw_text, verified_lang
 

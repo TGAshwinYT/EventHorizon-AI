@@ -181,36 +181,17 @@ def fetch_ceda_mandi_prices(db: Optional[Session] = None, target_date: Optional[
             if mandi_records_batch:
                 print("[CEDA API] Executing bulk upsert...")
                 stmt = insert(MandiRate).values(mandi_records_batch)
-                
-                try:
-                    upsert_stmt = stmt.on_conflict_do_update(
-                        constraint="uix_market_commodity_date", 
-                        set_={
-                            "min_price": stmt.excluded.min_price,
-                            "max_price": stmt.excluded.max_price,
-                            "modal_price": stmt.excluded.modal_price,
-                            "variety": stmt.excluded.variety,
-                            "updated_at": datetime.utcnow()
-                        },
-                        where=(stmt.excluded.modal_price > 0)
-                    )
-                    db.execute(upsert_stmt)
-                except Exception as db_e:
-                    print(f"[CEDA API] Default constraint 'uix_market_commodity_date' failed: {db_e}. Falling back to 'uix_mandi_rate'...")
-                    db.rollback()
-                    upsert_stmt_fallback = stmt.on_conflict_do_update(
-                        constraint="uix_mandi_rate", 
-                        set_={
-                            "min_price": stmt.excluded.min_price,
-                            "max_price": stmt.excluded.max_price,
-                            "modal_price": stmt.excluded.modal_price,
-                            "variety": stmt.excluded.variety,
-                            "updated_at": datetime.utcnow()
-                        },
-                        where=(stmt.excluded.modal_price > 0)
-                    )
-                    db.execute(upsert_stmt_fallback)
-                    
+                upsert_stmt = stmt.on_conflict_do_update(
+                    index_elements=["state", "district", "market", "commodity", "variety", "arrival_date"],
+                    set_={
+                        "min_price": stmt.excluded.min_price,
+                        "max_price": stmt.excluded.max_price,
+                        "modal_price": stmt.excluded.modal_price,
+                        "variety": stmt.excluded.variety
+                    },
+                    where=(stmt.excluded.modal_price > 0)
+                )
+                db.execute(upsert_stmt)
                 db.commit()
                 print("[CEDA API] Bulk upsert successful.")
             

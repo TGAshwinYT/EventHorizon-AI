@@ -30,6 +30,7 @@ jobs:
       - name: Run daily Mandi data fetch
         env:
           AGMARKNET_API_KEY: ${{ secrets.AGMARKNET_API_KEY }}
+          MANDI_DATABASE_URL: ${{ secrets.MANDI_DATABASE_URL }}
           DATABASE_URL: ${{ secrets.MANDI_DATABASE_URL }}
         run: |
           cd backend

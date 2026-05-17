@@ -1,27 +1,5 @@
 import requests
 import os
-import random
-from typing import List, Dict, Any, Optional, Union, Set
-from datetime import datetime, timedelta
-from sqlalchemy.orm import Session
-from sqlalchemy.dialects.postgresql import insert
-from app.models import MandiRate
-from app.database import MandiSessionLocal, debug_print
-
-# --- Agmarknet API Config ---
-AGMARKNET_API_KEY = os.getenv("AGMARKNET_API_KEY") 
-BASE_URL = "https://api.data.gov.in/resource/9ef84268-d588-465a-a308-a864a43d0070"
-
-# We use only the subset of commodities relevant to EventHorizon AI
-COMMODITIES = [
-    'Tomato', 'Onion', 'Potato', 'Rice', 'Paddy(Dhan)(Common)', 'Wheat', 
-    'Maize', 'Cotton', 'Sugarcane', 'Brinjal', 'Cabbage', 'Cauliflower', 
-    'Carrot', 'Bhindi(Ladies Finger)', 'Green Chilli', 'Apple', 'Banana', 
-    'Mango', 'Orange', 'Pomegranate', 'Grapes'
-]
-
-import requests
-import os
 import time
 from typing import List, Dict, Any, Optional, Union, Set
 from datetime import datetime, timedelta
@@ -32,7 +10,7 @@ from app.models import MandiRate
 from app.database import MandiSessionLocal, debug_print
 
 # --- Agmarknet API Config ---
-AGMARKNET_API_KEY = os.getenv("AGMARKNET_API_KEY") 
+AGMARKNET_API_KEY = os.getenv("AGMARKNET_API_KEY") or os.getenv("DATAGOV_API_KEY") or os.getenv("OGD_API_KEY")
 BASE_URL = "https://api.data.gov.in/resource/9ef84268-d588-465a-a308-a864a43d0070"
 
 # Configuration for robustness
@@ -50,18 +28,24 @@ COMMODITIES = [
     'Garlic', 'Ginger', 'Turmeric', 'Papaya', 'Lemon', 'Coconut'
 ]
 
-def _format_agmarknet_date(raw_date_str: str) -> str:
-    """Helper to ensure dates are in DD/MM/YYYY format for our DB."""
+def _format_agmarknet_date(raw_date_str: str):
+    """Helper to ensure dates are parsed as datetime.date objects for our Postgres DB."""
     try:
         if "-" in raw_date_str:
             dt = datetime.strptime(raw_date_str.split("T")[0], "%Y-%m-%d")
-            return dt.strftime("%d/%m/%Y")
+            return dt.date()
         elif "/" in raw_date_str:
-            dt = datetime.strptime(raw_date_str.strip(), "%d/%m/%Y")
-            return dt.strftime("%d/%m/%Y")
-        return raw_date_str
+            parts = raw_date_str.strip().split("/")
+            if len(parts[0]) == 4:
+                dt = datetime.strptime(raw_date_str.strip(), "%Y/%m/%d")
+            else:
+                dt = datetime.strptime(raw_date_str.strip(), "%d/%m/%Y")
+            return dt.date()
+        # Fallback parsing
+        dt = datetime.strptime(raw_date_str.strip(), "%Y-%m-%d")
+        return dt.date()
     except Exception:
-        return datetime.now().strftime("%d/%m/%Y")
+        return datetime.now().date()
 
 def _fetch_single_commodity(commodity: str, date: str, session: requests.Session) -> List[Dict[str, Any]]:
     """Fetch all records for one commodity on one date with retries and backoff."""
@@ -119,7 +103,9 @@ def fetch_agmarknet_mandi_prices(db: Optional[Session] = None, target_date: Opti
 
     try:
         session = requests.Session()
-        session.headers.update({'User-Agent': 'EventHorizon-AI/1.0'})
+        session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        })
         
         mandi_records_batch = []
         seen_keys = set()
@@ -181,7 +167,7 @@ def fetch_agmarknet_mandi_prices(db: Optional[Session] = None, target_date: Opti
                             continue
             
             if date_records_count > 0:
-                print(f"[Agmarknet API] ✅ Successfully fetched {date_records_count} records for {date}")
+                print(f"[Agmarknet API] [OK] Successfully fetched {date_records_count} records for {date}")
                 successful_date = date
                 
         # Sequential retry for failed crops if we have some data for this date
@@ -224,31 +210,30 @@ def fetch_agmarknet_mandi_prices(db: Optional[Session] = None, target_date: Opti
                             continue
                 break # We got data for a date, stop trying older dates
             else:
-                print(f"[Agmarknet API] ⚠️ No data found for {date}.")
+                print(f"[Agmarknet API] [WARNING] No data found for {date}.")
 
         if mandi_records_batch:
             print(f"[Agmarknet API] Executing bulk upsert for {len(mandi_records_batch)} records...")
             stmt = insert(MandiRate).values(mandi_records_batch)
             upsert_stmt = stmt.on_conflict_do_update(
-                constraint="uix_mandi_rate", # Aligned with models.py
+                index_elements=["state", "district", "market", "commodity", "variety", "arrival_date"],
                 set_={
                     "min_price": stmt.excluded.min_price,
                     "max_price": stmt.excluded.max_price,
                     "modal_price": stmt.excluded.modal_price,
-                    "variety": stmt.excluded.variety,
-                    "updated_at": datetime.utcnow()
+                    "variety": stmt.excluded.variety
                 },
                 where=(stmt.excluded.modal_price > 0)
             )
             db.execute(upsert_stmt)
             db.commit()
-            print("[Agmarknet API] ✅ Bulk upsert successful.")
+            print("[Agmarknet API] [OK] Bulk upsert successful.")
 
         # Cleanup: 35-day rolling window
         from sqlalchemy import text
         cleanup_query = text("""
             DELETE FROM mandi_prices 
-            WHERE to_date(arrival_date, 'DD/MM/YYYY') < (CURRENT_DATE - INTERVAL '35 days')
+            WHERE arrival_date < (CURRENT_DATE - INTERVAL '35 days')
         """)
         db.execute(cleanup_query)
         db.commit()

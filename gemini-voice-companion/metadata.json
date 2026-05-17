@@ -1,0 +1,10 @@
+{
+  "name": "Gemini Voice Companion",
+  "description": "An AI assistant powered by Gemini 3 Flash for intelligence and Gemini 3.1 Flash TTS for realistic voice output.",
+  "requestFramePermissions": [
+    "microphone"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
