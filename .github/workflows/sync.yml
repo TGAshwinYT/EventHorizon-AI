@@ -27,7 +27,16 @@ jobs:
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           
-          # 3. THE FIX: Tell Git to completely ignore your generated audio files!
+          # 3. THE FIX: Tell Git to completely ignore generated, test, and binary files!
+          echo "*.mp3" >> .gitignore
+          echo "*.wav" >> .gitignore
+          echo "*.webm" >> .gitignore
+          echo "*.bin" >> .gitignore
+          echo "*.pyc" >> .gitignore
+          echo "__pycache__/" >> .gitignore
+          echo ".env" >> .gitignore
+          echo ".vscode/" >> .gitignore
+          echo "audio_output/" >> .gitignore
           echo "app/static/audio/*.mp3" >> .gitignore
           
           # 4. Package the folder
