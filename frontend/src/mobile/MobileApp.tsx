@@ -2,14 +2,14 @@ import { useState, useEffect, useRef } from 'react';
 import MobileSidebar from './components/MobileSidebar';
 
 import MobileMarketDashboard from './components/MobileMarketDashboard';
-import MobileSkillsDashboard from './components/MobileSkillsDashboard';
 import MobileSettings from './components/MobileSettings';
 import MobileVisualScanner from './components/MobileVisualScanner';
 import MobileRiskDashboard from './components/MobileRiskDashboard';
 import Auth from '../components/Auth';
 import { AlertCircle } from 'lucide-react';
-import ChatBox from '../components/ChatBox';
-import MobileInteractiveAIInput from './components/MobileInteractiveAIInput';
+
+import FloatingAssistant from '../components/Assistant/FloatingAssistant';
+import AssistantDrawer from '../components/Assistant/AssistantDrawer';
 import { useAudioPipeline } from '../hooks/useAudioPipeline';
 
 interface Message {
@@ -38,14 +38,16 @@ function MobileApp() {
         localStorage.setItem('language', language);
     }, [language]);
     const [connectionError, setConnectionError] = useState(false);
-    const [activeTab, setActiveTab] = useState<'home' | 'agriculture' | 'scanner' | 'risk' | 'skills' | 'settings'>('home');
+    const [activeTab, setActiveTab] = useState<'agriculture' | 'scanner' | 'risk' | 'settings'>('risk');
+    const [isAssistantOpen, setIsAssistantOpen] = useState(false);
 
-    const [courses, setCourses] = useState<any[]>([]);
+
     const [messages, setMessages] = useState<Message[]>([]);
-    const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(true);
+
 
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
+    const audioQueueRef = useRef<string[]>([]);
 
     useEffect(() => {
         const storedToken = sessionStorage.getItem('token');
@@ -73,9 +75,6 @@ function MobileApp() {
 
         const fetchData = () => {
             const headers = { 'Authorization': `Bearer ${token}` };
-
-            setIsLoadingHistory(true);
-
             fetch('/api/chat/history', { headers })
                 .then(res => {
                     if (res.status === 401) throw new Error("Unauthorized");
@@ -94,8 +93,7 @@ function MobileApp() {
                     if (err.message === "Unauthorized") {
                         handleLogout();
                     }
-                })
-                .finally(() => setIsLoadingHistory(false));
+                });
 
             fetch('/api/auth/profile', { headers })
                 .then(res => res.json())
@@ -112,11 +110,6 @@ function MobileApp() {
                     }
                 })
                 .catch(err => console.error("Failed to fetch profile:", err));
-
-            fetch(`/api/market/courses?language=${language}`)
-                .then(res => res.json())
-                .then(coursesJson => setCourses(coursesJson))
-                .catch(err => console.error("Failed to fetch courses:", err));
         };
         fetchData();
 
@@ -165,6 +158,7 @@ function MobileApp() {
             audioRef.current.currentTime = 0;
             audioRef.current = null;
         }
+        audioQueueRef.current = [];
         setVoiceStatus('idle');
         return true;
     };
@@ -210,14 +204,37 @@ function MobileApp() {
         }
     };
 
-    const playAudioResponse = (url: string) => {
-        stopSpeaking();
+    const playAudioResponse = (url: string, onEnded?: () => void) => {
+        if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current = null;
+        }
         const audio = new Audio(url);
         audioRef.current = audio;
         audio.onplay = () => setVoiceStatus('speaking');
-        audio.onended = () => { setVoiceStatus('idle'); audioRef.current = null; };
-        audio.onerror = () => { setVoiceStatus('idle'); audioRef.current = null; };
-        audio.play().catch(() => { setVoiceStatus('idle'); audioRef.current = null; });
+        audio.onended = () => { 
+            audioRef.current = null; 
+            if (onEnded) onEnded(); else setVoiceStatus('idle');
+        };
+        audio.onerror = () => { 
+            audioRef.current = null; 
+            if (onEnded) onEnded(); else setVoiceStatus('idle');
+        };
+        audio.play().catch(() => { 
+            audioRef.current = null; 
+            if (onEnded) onEnded(); else setVoiceStatus('idle');
+        });
+    };
+
+    const playNextAudioInQueue = () => {
+        if (audioQueueRef.current.length === 0) {
+            setVoiceStatus('idle');
+            return;
+        }
+        const nextUrl = audioQueueRef.current.shift();
+        if (nextUrl) {
+            playAudioResponse(nextUrl, playNextAudioInQueue);
+        }
     };
 
     const fetchAndPlayTTS = async (text: string, overrideLanguage?: string) => {
@@ -279,9 +296,10 @@ function MobileApp() {
             if (audioBlob) formData.append('audio', audioBlob, 'input.webm');
             else if (text) formData.append('message', text);
             formData.append('language', language);
+            formData.append('page_context', activeTab);
             formData.append('voice_enabled', 'false');
 
-            const response = await fetch('/api/chat', {
+            const response = await fetch('/api/chat/stream', {
                 method: 'POST',
                 headers: token ? { 'Authorization': `Bearer ${token}` } : undefined,
                 body: formData,
@@ -291,17 +309,50 @@ function MobileApp() {
             if (response.status === 401) return handleLogout();
             if (!response.ok) throw new Error("Server error");
 
-            const data = await response.json();
-            const userMsg: Message = { id: Date.now().toString(), text: data.user_text || text || "Voice Input", sender: 'user', timestamp: new Date() };
-            const aiMsg: Message = { id: (Date.now() + 1).toString(), text: data.response_text, sender: 'ai', timestamp: new Date() };
-
+            const userMsg: Message = { id: Date.now().toString(), text: text || "Voice Input", sender: 'user', timestamp: new Date() };
+            const aiMsg: Message = { id: (Date.now() + 1).toString(), text: "", sender: 'ai', timestamp: new Date() };
             setMessages(prev => [...prev, userMsg, aiMsg]);
 
-            if (audioBlob || text) {
-                const summary = data.response_text.split('|||')[0].trim();
-                await fetchAndPlayTTS(summary, data.detected_language);
-            } else {
-                setVoiceStatus('idle');
+            const reader = response.body?.getReader();
+            const decoder = new TextDecoder();
+            let fullAiResponse = "";
+            let isFirstChunk = true;
+
+            if (reader) {
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    
+                    const chunkStr = decoder.decode(value, { stream: true });
+                    const lines = chunkStr.split('\\n');
+                    
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.substring(6));
+                                if (data.type === 'metadata') {
+                                    if (isFirstChunk) {
+                                        setMessages(prev => prev.map(m => m.id === userMsg.id ? { ...m, text: data.user_text || text || "Voice Input" } : m));
+                                        isFirstChunk = false;
+                                    }
+                                } else if (data.type === 'text') {
+                                    fullAiResponse += data.text;
+                                    setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, text: fullAiResponse } : m));
+                                } else if (data.type === 'audio') {
+                                    const audioUrl = `data:audio/mp3;base64,${data.audio_base64}`;
+                                    audioQueueRef.current.push(audioUrl);
+                                    if (!audioRef.current || audioRef.current.ended || audioRef.current.paused) {
+                                        playNextAudioInQueue();
+                                    }
+                                } else if (data.type === 'complete') {
+                                    if (audioQueueRef.current.length === 0 && !audioRef.current) {
+                                        setVoiceStatus('idle');
+                                    }
+                                }
+                            } catch(e) {}
+                        }
+                    }
+                }
             }
         } catch (error: any) {
             if (error.name === 'AbortError') return;
@@ -323,7 +374,26 @@ function MobileApp() {
 
     return (
         <div className="flex flex-col h-[100dvh] w-full bg-slate-950 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-slate-950 to-black text-slate-50 font-sans overflow-hidden antialiased relative">
-            <main className="flex-1 flex flex-col relative pb-[80px] overflow-hidden min-h-0"> {/* Bottom nav padding */}
+            <main className="flex-1 flex flex-col relative pb-[80px] overflow-hidden min-h-0">
+                <FloatingAssistant onClick={() => setIsAssistantOpen(true)} isOpen={isAssistantOpen} />
+                <AssistantDrawer 
+                    isOpen={isAssistantOpen}
+                    onClose={() => setIsAssistantOpen(false)}
+                    messages={messages}
+                    voiceStatus={voiceStatus}
+                    onMicClick={handleMicClick}
+                    onSubmitText={(text) => handleChat(text)}
+                    networkQuality={audioPipeline.networkQuality}
+                    streamState={audioPipeline.streamState}
+                    bufferedChunks={audioPipeline.bufferedChunks}
+                    waveformLevel={audioPipeline.waveformLevel}
+                    recordingDuration={audioPipeline.recordingDuration}
+                    isRecording={audioPipeline.isRecording}
+                    onReadAloud={fetchAndPlayTTS}
+                    currentUI={currentUI}
+                    pageContextText={activeTab === 'risk' ? 'Risk Dashboard' : activeTab === 'agriculture' ? 'Market Intelligence' : activeTab === 'scanner' ? 'Plant Doctor' : 'Settings'}
+                />
+
                 <header className="w-full px-6 py-4 flex justify-between items-center z-10 shrink-0 bg-slate-950/80 backdrop-blur-md border-b border-white/5">
                     <div className="flex items-center gap-3">
                         <img src="/logo.png" alt="Logo" className="w-8 h-8 rounded-full" />
@@ -339,80 +409,23 @@ function MobileApp() {
                     </div>
                 )}
 
-                {activeTab === 'home' ? (
-                    <div className="flex flex-col h-full w-full relative">
-                        <div className="flex-1 overflow-y-auto px-4 pb-20 custom-scrollbar scroll-smooth pt-4">
-                            {isLoadingHistory ? (
-                                <div className="flex flex-col items-center justify-center h-full text-center opacity-80">
-                                    <div className="w-10 h-10 rounded-full border-t-2 border-r-2 border-blue-500 animate-spin mb-4" />
-                                    <h2 className="text-lg font-medium text-slate-300 animate-pulse">Loading history...</h2>
-                                </div>
-                            ) : messages.length === 0 ? (
-                                <div className="flex flex-col items-center justify-center h-full text-center opacity-60">
-                                    <div className="w-16 h-16 bg-white/5 rounded-full flex items-center justify-center mb-6 overflow-hidden border border-white/10 shadow-lg">
-                                        <img src="/logo.png" alt="EventHorizon AI" className="w-full h-full object-cover" />
-                                    </div>
-                                    <h2 className="text-xl font-bold mb-2">EventHorizon AI</h2>
-                                    <p className="text-gray-400 text-sm max-w-xs mx-auto">
-                                        Your intelligent assistant. Tap the mic or type to start.
-                                    </p>
-                                    {voiceStatus === 'listening' && <p className="mt-6 text-lg text-blue-400 animate-pulse font-medium">{currentUI.listening}</p>}
-                                    {voiceStatus === 'thinking' && <p className="mt-6 text-lg text-purple-400 animate-pulse font-medium">{currentUI.thinking}</p>}
-                                    {voiceStatus === 'speaking' && <p className="mt-6 text-lg text-blue-400 font-medium">{currentUI.speaking}</p>}
-                                </div>
-                            ) : (
-                                <div className="space-y-6">
-                                    <ChatBox messages={messages} onReadAloud={fetchAndPlayTTS} />
-                                    {voiceStatus === 'thinking' && (
-                                        <div className="flex gap-4 animate-fade-in pl-2">
-                                            <div className="w-6 h-6 rounded-full bg-purple-500/20 flex items-center justify-center border border-purple-500/30">
-                                                <div className="w-1.5 h-1.5 bg-purple-400 rounded-full animate-ping" />
-                                            </div>
-                                            <div className="bg-white/5 rounded-2xl rounded-tl-none p-3 border border-white/10 flex items-center">
-                                                <span className="text-gray-300 text-xs">{currentUI.thinking}</span>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-                            <div id="scroll-anchor" className="h-4" />
-                        </div>
-                        <MobileInteractiveAIInput
-                            voiceStatus={voiceStatus}
-                            onMicClick={handleMicClick}
-                            onSubmitText={(text) => handleChat(text)}
-                            networkQuality={audioPipeline.networkQuality}
-                            streamState={audioPipeline.streamState}
-                            bufferedChunks={audioPipeline.bufferedChunks}
-                            waveformLevel={audioPipeline.waveformLevel}
-                            recordingDuration={audioPipeline.recordingDuration}
-                            isRecording={audioPipeline.isRecording}
-                        />
-                    </div>
-                ) : activeTab === 'scanner' ? (
-                    <MobileVisualScanner language={language} token={token} onBack={() => setActiveTab('home')} />
+                {activeTab === 'scanner' ? (
+                    <MobileVisualScanner language={language} token={token} onBack={() => setActiveTab('risk')} />
                 ) : activeTab === 'risk' ? (
                     <MobileRiskDashboard
-                        onBack={() => setActiveTab('home')}
+                        onBack={() => {}}
                         currentLanguage={language}
                         labels={currentUI}
                     />
                 ) : activeTab === 'agriculture' ? (
                     <MobileMarketDashboard
-                        onBack={() => setActiveTab('home')}
+                        onBack={() => setActiveTab('risk')}
                         currentLanguage={language}
                         labels={currentUI}
                     />
-                ) : activeTab === 'skills' ? (
-                    <MobileSkillsDashboard
-                        onBack={() => setActiveTab('home')}
-                        courses={courses}
-                        headerText={currentUI.skillsHeader}
-                        labels={currentUI}
-                    />
-                ) : (
+                ) : activeTab === 'settings' ? (
                     <MobileSettings
-                        onBack={() => setActiveTab('home')}
+                        onBack={() => setActiveTab('risk')}
                         messages={messages}
                         onDeleteMessage={deleteMessage}
                         onClearHistory={clearHistory}
@@ -434,18 +447,16 @@ function MobileApp() {
                         }}
                         onLogout={handleLogout}
                     />
-                )}
+                ) : null}
             </main>
 
             <MobileSidebar
                 activeTab={activeTab}
                 setActiveTab={(tab: any) => setActiveTab(tab)}
                 labels={{
-                    home: currentUI.home || 'Home',
                     agriculture: currentUI.agriculture || 'Agri',
                     scanner: currentUI.scanner || 'Scan',
                     risk: currentUI.risk || 'Risk',
-                    skills: currentUI.skills || 'Skills',
                     settings: currentUI.settings || 'Settings'
                 }}
             />

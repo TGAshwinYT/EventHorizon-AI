@@ -186,6 +186,7 @@ export default function InteractiveAIInput({
                 )}
 
                 <motion.button
+                    id="drawer-mic-btn"
                     layout="position"
                     onClick={handleMicClick}
                     className={`h-16 shrink-0 flex items-center justify-center transition-colors absolute right-0 top-0 bottom-0 ${voiceStatus === 'listening' || isRecording ? 'bg-red-500 text-white shadow-[0_0_20px_rgba(239,68,68,0.5)]' :

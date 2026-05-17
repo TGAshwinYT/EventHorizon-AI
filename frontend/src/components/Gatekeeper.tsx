@@ -111,7 +111,7 @@ const Gatekeeper: React.FC<GatekeeperProps> = ({ children }) => {
                 </div>
 
                 <p className="mt-8 text-xs text-slate-500 max-w-xs text-center">
-                    Powering up language processing, retrieving skill databases, and initializing the core loop.
+                    Powering up language processing, retrieving agricultural databases, and initializing the core loop.
                 </p>
             </div>
 

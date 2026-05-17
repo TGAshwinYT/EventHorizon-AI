@@ -25,7 +25,7 @@ from starlette.websockets import WebSocketState
 
 from app.services.opus_decoder import assemble_chunks_to_pcm, decode_opus_to_pcm
 from app.services.riva_asr_service import riva_asr_service, detect_language_from_text
-from app.services.nemotron_llm_service import nemotron_llm_service
+from app.services.gemini_service import gemini_service
 from app.services.riva_tts_service import riva_tts_service
 from app.auth import decode_access_token
 
@@ -261,9 +261,8 @@ async def _run_pipeline(
 
         # ===== STAGE 2: ASR (The Ear) =====
         asr_start = time.time()
-        transcript, detected_lang = await riva_asr_service.transcribe(
-            pcm_audio, language_hint=language_hint
-        )
+        # Auto-detected - no language_hint
+        transcript, detected_lang = await riva_asr_service.transcribe(pcm_audio)
 
         if not transcript:
             await _safe_send_json(ws, {
@@ -294,32 +293,75 @@ async def _run_pipeline(
         if user_id:
             history = await _load_user_history(user_id)
 
-        async for sentence in nemotron_llm_service.generate_streaming(
-            transcript, language=text_lang, history=history
-        ):
-            full_response += sentence + " "
-            sentence_count += 1
+        sentence_buffer = ""
+        import re
+        sentence_end_pattern = re.compile(r'([.?!।]\s+)|([.?!।]$)')
 
-            # Send LLM chunk to client
+        async for chunk in gemini_service.generate_response_stream(
+            message=transcript,
+            context="agriculture",
+            detected_language=text_lang,
+            history=history,
+        ):
+            full_response += chunk
+            sentence_buffer += chunk
+
+            # Check if sentence buffer has a complete sentence
+            match = sentence_end_pattern.search(sentence_buffer)
+            if match:
+                end_idx = match.end()
+                sentence_to_speak = sentence_buffer[:end_idx].strip()
+                sentence_buffer = sentence_buffer[end_idx:]
+
+                # Send LLM chunk to client
+                await _safe_send_json(ws, {
+                    "type": "llm_chunk",
+                    "text": sentence_to_speak + " ",
+                })
+                sentence_count += 1
+
+                # ===== STAGE 4: TTS (The Mouth) - Progressive =====
+                try:
+                    clean_sentence = re.sub(r'[*#_`~-]', '', sentence_to_speak).strip()
+                    if len(clean_sentence) > 2:
+                        tts_audio = await riva_tts_service.synthesize(
+                            clean_sentence, language=text_lang, output_format="mp3"
+                        )
+                        if tts_audio:
+                            audio_b64 = base64.b64encode(tts_audio).decode("utf-8")
+                            await _safe_send_json(ws, {
+                                "type": "tts_audio",
+                                "data": audio_b64,
+                                "format": "mp3",
+                            })
+                except Exception as e:
+                    logger.warning(f"[Pipeline] TTS failed for sentence: {e}")
+
+        # Flush any remaining buffer at the end
+        if sentence_buffer.strip():
+            sentence_to_speak = sentence_buffer.strip()
+            
             await _safe_send_json(ws, {
                 "type": "llm_chunk",
-                "text": sentence,
+                "text": sentence_to_speak,
             })
-
-            # ===== STAGE 4: TTS (The Mouth) - Progressive =====
+            sentence_count += 1
+            
             try:
-                tts_audio = await riva_tts_service.synthesize(
-                    sentence, language=text_lang, output_format="mp3"
-                )
-                if tts_audio:
-                    audio_b64 = base64.b64encode(tts_audio).decode("utf-8")
-                    await _safe_send_json(ws, {
-                        "type": "tts_audio",
-                        "data": audio_b64,
-                        "format": "mp3",
-                    })
+                clean_sentence = re.sub(r'[*#_`~-]', '', sentence_to_speak).strip()
+                if len(clean_sentence) > 2:
+                    tts_audio = await riva_tts_service.synthesize(
+                        clean_sentence, language=text_lang, output_format="mp3"
+                    )
+                    if tts_audio:
+                        audio_b64 = base64.b64encode(tts_audio).decode("utf-8")
+                        await _safe_send_json(ws, {
+                            "type": "tts_audio",
+                            "data": audio_b64,
+                            "format": "mp3",
+                        })
             except Exception as e:
-                logger.warning(f"[Pipeline] TTS failed for sentence: {e}")
+                logger.warning(f"[Pipeline] TTS failed for final sentence: {e}")
 
         llm_time = time.time() - llm_start
         total_time = time.time() - pipeline_start

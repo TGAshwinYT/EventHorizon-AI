@@ -1,26 +1,22 @@
-import { Home, Sprout, GraduationCap, Settings, ScanLine, ShieldAlert } from 'lucide-react';
+import { Sprout, Settings, ScanLine, ShieldAlert } from 'lucide-react';
 import clsx from 'clsx';
 
 interface SidebarProps {
     activeTab: string;
     setActiveTab: (tab: string) => void;
     labels: {
-        home: string;
         agriculture: string;
         scanner: string;
         risk: string;
-        skills: string;
         settings: string;
     };
 }
 
 const Sidebar = ({ activeTab, setActiveTab, labels }: SidebarProps) => {
     const menuItems = [
-        { id: 'home', icon: Home, label: labels.home || 'Home' },
         { id: 'agriculture', icon: Sprout, label: labels.agriculture || 'Agriculture' },
         { id: 'scanner', icon: ScanLine, label: labels.scanner || 'Scan' },
         { id: 'risk', icon: ShieldAlert, label: labels.risk || 'HarvestIQ' },
-
         { id: 'settings', icon: Settings, label: labels.settings || 'Settings' },
     ];
 

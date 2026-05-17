@@ -15,7 +15,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from app.routers import chat, market, voice, auth, weather, voice_pipeline, scanner, harvestiq, satellite
+from app.routers import chat, market, auth, weather, voice_pipeline, scanner, harvestiq, satellite
 from app.database import auth_engine, mandi_engine, AuthBase, MandiBase
 
 ml_models = {}
@@ -126,7 +126,6 @@ app.add_middleware(
 # Register Routers
 app.include_router(chat.router, prefix='/api/chat', tags=["Chat"])
 app.include_router(market.router, prefix='/api/market', tags=["Market"])
-app.include_router(voice.router, prefix='/api/voice', tags=["Voice"])
 app.include_router(auth.router, prefix='/api/auth', tags=["Auth"])
 app.include_router(weather.router, prefix='/api/weather', tags=["Weather"])
 # Real-time voice pipeline (WebSocket ASR -> LLM -> TTS)

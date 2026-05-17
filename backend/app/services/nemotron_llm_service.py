@@ -188,8 +188,8 @@ class NemotronLLMService:
     ) -> str:
         """Generate using existing GeminiService (synchronous, wrapped in async)."""
         if self._gemini_service is None:
-            from app.services.gemini_service import GeminiService
-            self._gemini_service = GeminiService()
+            from app.services.gemini_service import gemini_service
+            self._gemini_service = gemini_service
 
         from app.llm_memory_manager import process_and_trim_history
 

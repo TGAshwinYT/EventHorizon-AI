@@ -7,17 +7,13 @@ import tempfile
 from groq import Groq
 from typing import Optional, List, Dict, Any, Union
 from pydantic import BaseModel
-from app.services.gemini_service import GeminiService
-from app.services.audio_service import AudioService
+from app.services.gemini_service import gemini_service
+from app.services.riva_tts_service import riva_tts_service
 from app.database import get_auth_db, AuthSessionLocal
 from app.models import User, ChatHistory
 from app.auth import decode_access_token
 from sqlalchemy.orm import Session
 from app.llm_memory_manager import process_and_trim_history
-
-# Initialize services
-gemini_service = GeminiService()
-audio_service = AudioService()
 
 router = APIRouter()
 
@@ -28,56 +24,12 @@ def get_local_whisper_model():
 
 async def transcribe_audio_with_fallback(audio: UploadFile) -> tuple[str, str]:
     """
-    Transcribe audio with graceful degradation:
-    Primary Route: Groq API (whisper-large-v3-turbo)
-    Fallback Route: Local Whisper (tiny model)
+    Transcribe audio with graceful degradation.
     Returns: (transcribed_text, detected_language_code)
     """
     audio_bytes = await audio.read()
-    filename = audio.filename if hasattr(audio, 'filename') and audio.filename else "audio.wav"
-    
-    # --- PRIMARY ROUTE (Groq API) ---
-    try:
-        print(f"[TRANSCRIPTION] Attempting Groq API transcription for {filename}...")
-        file_obj = io.BytesIO(audio_bytes)
-        file_obj.name = filename
-        
-        groq_client = Groq(api_key=os.environ.get("GROQ_API_KEY", ""))
-        transcription = groq_client.audio.transcriptions.create(
-            file=(filename, file_obj),
-            model="whisper-large-v3-turbo",
-            response_format="verbose_json"
-        )
-        
-        return transcription.text, transcription.language
-        
-    except Exception as e:
-        # --- FALLBACK ROUTE (Local Whisper) ---
-        print(f"[TRANSCRIPTION ERROR] Groq API failed: {e}. Falling back to local Whisper model...")
-        
-        # Save bytes to a temporary file since local whisper expects a file path
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
-            temp_audio.write(audio_bytes)
-            temp_file_path = temp_audio.name
-            
-        try:
-            model = get_local_whisper_model()
-            # transcribe() performs both language detection and transcription
-            result = model.transcribe(temp_file_path)
-            
-            user_text = result["text"]
-            detected_language = result.get("language", "en")
-            
-            return user_text, detected_language
-            
-        except Exception as local_e:
-            print(f"[TRANSCRIPTION ERROR] Local Whisper fallback also failed: {local_e}")
-            raise HTTPException(status_code=500, detail="Audio transcription failed on both primary and fallback routes.")
-            
-        finally:
-            # Clean up the temporary file
-            if os.path.exists(temp_file_path):
-                os.remove(temp_file_path)
+    from app.services.riva_asr_service import riva_asr_service
+    return await riva_asr_service.transcribe(audio_bytes)
 
 def detect_language(text: str, default: str = 'en') -> str:
     """Simple script-based language detection for Indian languages"""
@@ -226,7 +178,7 @@ async def chat_endpoint(request: Request):
         from app.services.riva_asr_service import riva_asr_service
         
         # 1. Transcribe audio using Groq Whisper (which handles Taenglish/Hienglish)
-        transcribed_text, detected_lang = await riva_asr_service.transcribe(audio_bytes, target_lang)
+        transcribed_text, detected_lang = await riva_asr_service.transcribe(audio_bytes)
         
         print(f"[ASR] User said: {transcribed_text}")
         if not transcribed_text:
@@ -253,12 +205,12 @@ async def chat_endpoint(request: Request):
                 "Structure: [Summary] ||| [Details]"
             )
 
-        extended_instruction = market_instruction + "\nTASK: Provide a helpful response IN THE SAME LANGUAGE AS THE USER'S SPEECH."
+        extended_instruction = market_instruction + f"\nTASK: Provide a helpful response IN {target_lang_name.upper()}. If the user uses a code-mixed language or roman script, match their style but respond natively in {target_lang_name}."
         
         trimmed_history = process_and_trim_history(session_db_history, extended_instruction, max_conversational_items=6)
         
         # 2. Pass transcribed text to Gemini
-        ai_response = gemini_service.generate_response(message=user_message, audio_data=None, audio_mime_type=None, context=context, use_search=use_search_flag, history=trimmed_history)
+        ai_response = gemini_service.generate_response(message=user_message, context=context, detected_language=detected_lang, use_search=use_search_flag, history=trimmed_history)
         print(f"[GEMINI] Response: {ai_response}")
         
         # Use the language explicitly selected in the UI for TTS and AI response
@@ -299,7 +251,7 @@ async def chat_endpoint(request: Request):
         final_query = final_query_text + "\n\n" + structured_instruction
         trimmed_history = process_and_trim_history(session_db_history, final_query, max_conversational_items=6)
         
-        ai_response = gemini_service.generate_response(message="", context=context, use_search=use_search_flag, history=trimmed_history)
+        ai_response = gemini_service.generate_response(message="", context=context, detected_language=detected_lang, use_search=use_search_flag, history=trimmed_history)
         print(f"[GEMINI TEXT] {ai_response[:100]}...")
         
     else:
@@ -314,7 +266,7 @@ async def chat_endpoint(request: Request):
         # Clean text for TTS (remove markdown * # - etc)
         import re
         clean_text = re.sub(r'[*#_`~-]', '', final_response)
-        audio_bytes = audio_service.text_to_speech(clean_text, detected_lang)
+        audio_bytes = await riva_tts_service.synthesize(clean_text, detected_lang)
         if audio_bytes:
             audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
             audio_url = f"data:audio/mp3;base64,{audio_base64}"
@@ -337,6 +289,167 @@ async def chat_endpoint(request: Request):
         "audio_url": audio_url,
         "detected_language": detected_lang
     }
+
+from fastapi.responses import StreamingResponse
+import asyncio
+import json
+
+@router.post('/stream')
+async def chat_stream_endpoint(request: Request):
+    """
+    Streaming chat endpoint for SSE.
+    Streams text chunks instantly, and yields audio chunks as soon as sentences complete.
+    """
+    content_type = request.headers.get('content-type', '')
+    
+    message = None
+    language = 'en'
+    context = 'general'
+    audio: Optional[UploadFile] = None
+    
+    if 'multipart/form-data' in content_type:
+        form = await request.form()
+        message = form.get('message')
+        language = form.get('language', 'en')
+        context = form.get('context', 'general')
+        page_context = form.get('page_context', '')
+        audio = form.get('audio')
+    else:
+        raise HTTPException(status_code=400, detail="Unsupported Content-Type")
+
+    user_id = None
+    auth_header = request.headers.get('Authorization')
+    if auth_header and auth_header.startswith("Bearer "):
+        try:
+            token = auth_header.split(" ")[1]
+            payload = decode_access_token(token)
+            if payload:
+                username = payload.get("sub")
+                db = AuthSessionLocal()
+                user = db.query(User).filter(User.username == username).first()
+                if user:
+                    user_id = user.id
+                db.close()
+        except Exception as e:
+            pass
+
+    session_db_history = []
+    if user_id:
+        db = AuthSessionLocal()
+        raw_history = db.query(ChatHistory).filter(ChatHistory.user_id == user_id).order_by(ChatHistory.timestamp).all()
+        for h in raw_history:
+            session_db_history.append({
+                "role": 'assistant' if h.sender == 'ai' else h.sender,
+                "content": h.message
+            })
+        db.close()
+
+    user_message = message
+    target_lang = language or 'en'
+    
+    # 1. Handle Audio
+    if audio:
+        audio_bytes = await audio.read()
+        from app.services.riva_asr_service import riva_asr_service
+        transcribed_text, detected_lang = await riva_asr_service.transcribe(audio_bytes)
+        if not transcribed_text:
+            raise HTTPException(status_code=400, detail="Could not understand audio")
+        user_message = transcribed_text
+        target_lang = detected_lang
+    elif user_message:
+        detected_lang = target_lang
+    else:
+         raise HTTPException(status_code=400, detail="No message or audio provided")
+
+    LANGUAGE_NAMES = {
+        'en': 'English', 'hi': 'Hindi', 'bn': 'Bengali', 'te': 'Telugu',
+        'mr': 'Marathi', 'ta': 'Tamil', 'gu': 'Gujarati', 'kn': 'Kannada', 'ml': 'Malayalam'
+    }
+    target_lang_name = LANGUAGE_NAMES.get(target_lang, 'English')
+
+    # Construct Prompt
+    instruction = ""
+    if page_context:
+        instruction += f"The user is currently viewing the {page_context} page. "
+    
+    instruction += (
+        "Provide a concise summary first. "
+        f"IMPORTANT TASK: Provide a helpful response IN {target_lang_name.upper()}. "
+        f"If the user uses a code-mixed language or roman script, match their style but respond natively in {target_lang_name}."
+    )
+    final_query = (user_message or "") + "\n\n" + instruction
+    trimmed_history = process_and_trim_history(session_db_history, final_query, max_conversational_items=6)
+
+    # Save User Message
+    if user_id and user_message:
+        try:
+            db = AuthSessionLocal()
+            db.add(ChatHistory(user_id=user_id, message=user_message, sender="user"))
+            db.commit()
+            db.close()
+        except Exception:
+            pass
+
+    async def event_stream():
+        # First send the transcribed text to UI so user can see it immediately
+        yield f"data: {json.dumps({'type': 'metadata', 'user_text': user_message, 'detected_language': detected_lang})}\n\n"
+        
+        full_response = ""
+        sentence_buffer = ""
+        
+        # We define sentence boundaries to trigger TTS chunks
+        import re
+        # matches punctuation followed by space or end of string
+        sentence_end_pattern = re.compile(r'([.?!।]\s+)|([.?!।]$)')
+        
+        from app.services.riva_tts_service import riva_tts_service
+
+        async for chunk in gemini_service.generate_response_stream(message="", context=context, detected_language=detected_lang, history=trimmed_history):
+            full_response += chunk
+            sentence_buffer += chunk
+            
+            # Send text chunk immediately
+            yield f"data: {json.dumps({'type': 'text', 'text': chunk})}\n\n"
+            
+            # Check if sentence buffer has a complete sentence
+            match = sentence_end_pattern.search(sentence_buffer)
+            if match:
+                end_idx = match.end()
+                sentence_to_speak = sentence_buffer[:end_idx].strip()
+                sentence_buffer = sentence_buffer[end_idx:]
+                
+                # Clean up markdown
+                clean_sentence = re.sub(r'[*#_`~-]', '', sentence_to_speak).strip()
+                if len(clean_sentence) > 2:
+                    # Synthesize this sentence asynchronously
+                    audio_bytes = await riva_tts_service.synthesize(clean_sentence, detected_lang)
+                    if audio_bytes:
+                        audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
+                        yield f"data: {json.dumps({'type': 'audio', 'audio_base64': audio_base64})}\n\n"
+
+        # After the loop, speak whatever is left in the buffer
+        if sentence_buffer.strip():
+            clean_sentence = re.sub(r'[*#_`~-]', '', sentence_buffer).strip()
+            if len(clean_sentence) > 2:
+                audio_bytes = await riva_tts_service.synthesize(clean_sentence, detected_lang)
+                if audio_bytes:
+                    audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
+                    yield f"data: {json.dumps({'type': 'audio', 'audio_base64': audio_base64})}\n\n"
+                    
+        # Send complete marker
+        yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+        
+        # Save AI Response
+        if user_id and full_response:
+            try:
+                db = AuthSessionLocal()
+                db.add(ChatHistory(user_id=user_id, message=full_response, sender="ai"))
+                db.commit()
+                db.close()
+            except Exception:
+                pass
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 @router.get('/history')
 def get_chat_history(authorization: str = Header(None)):
@@ -446,7 +559,7 @@ def delete_message(msg_id: int, authorization: str = Header(None)):
         raise HTTPException(status_code=500, detail="Failed to delete message")
 
 @router.post('/tts')
-def generate_tts(data: TTSRequest):
+async def generate_tts(data: TTSRequest):
     """
     Generate TTS audio for a given text.
     """
@@ -461,7 +574,7 @@ def generate_tts(data: TTSRequest):
     clean_text = re.sub(r'[*#_`~-]', '', text)
     
     try:
-        audio_bytes = audio_service.text_to_speech(clean_text, language)
+        audio_bytes = await riva_tts_service.synthesize(clean_text, language)
         if audio_bytes:
             audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
             audio_url = f"data:audio/mp3;base64,{audio_base64}"
@@ -582,7 +695,7 @@ async def voice_chat_endpoint(
         gemini_response = gemini_service.generate_response(
             message=user_text,
             context=context,
-            history=[{"role": "system", "content": system_prompt}]  # Pass as system prompt in history
+            detected_language=detected_language
         )
         
         # 4. Text-to-Speech via Edge-TTS
@@ -592,7 +705,7 @@ async def voice_chat_endpoint(
         clean_text = re.sub(r'[*#_`~-]', '', gemini_response)
         
         # Map Whisper language codes to Edge-TTS if needed (audio_service uses 2-letter codes)
-        tts_audio_bytes = audio_service.text_to_speech(clean_text, detected_language)
+        tts_audio_bytes = await riva_tts_service.synthesize(clean_text, detected_language)
         
         if tts_audio_bytes:
             audio_base64 = base64.b64encode(tts_audio_bytes).decode('utf-8')

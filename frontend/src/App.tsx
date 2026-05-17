@@ -3,15 +3,15 @@ import Sidebar from './components/Sidebar';
 
 
 import MarketDashboard from './components/MarketDashboard';
-import SkillsDashboard from './components/SkillsDashboard';
 import Settings from './components/Settings';
 import VisualScanner from './components/VisualScanner';
 import RiskDashboard from './components/RiskDashboard';
 import Auth from './components/Auth';
 import Onboarding from './components/Onboarding';
 import { AlertCircle } from 'lucide-react';
-import ChatBox from './components/ChatBox';
-import InteractiveAIInput from './components/InteractiveAIInput';
+
+import FloatingAssistant from './components/Assistant/FloatingAssistant';
+import AssistantDrawer from './components/Assistant/AssistantDrawer';
 import { useAudioPipeline } from './hooks/useAudioPipeline';
 
 interface Message {
@@ -55,14 +55,16 @@ function App() {
         }
     };
     const [connectionError, setConnectionError] = useState(false);
-    const [activeTab, setActiveTab] = useState<'home' | 'agriculture' | 'scanner' | 'risk' | 'skills' | 'settings'>('home');
+    const [activeTab, setActiveTab] = useState<'agriculture' | 'scanner' | 'risk' | 'settings'>('risk');
+    const [isAssistantOpen, setIsAssistantOpen] = useState(false);
 
-    const [courses, setCourses] = useState<any[]>([]);
+
     const [messages, setMessages] = useState<Message[]>([]);
-    const [isLoadingHistory, setIsLoadingHistory] = useState<boolean>(true);
+
 
     const audioRef = useRef<HTMLAudioElement | null>(null);
     const abortControllerRef = useRef<AbortController | null>(null);
+    const audioQueueRef = useRef<string[]>([]);
 
     // Check auth on mount and handle migration/cleanup
     useEffect(() => {
@@ -94,7 +96,7 @@ function App() {
         const fetchData = () => {
             const headers = { 'Authorization': `Bearer ${token}` };
 
-            setIsLoadingHistory(true);
+
 
             // Fetch History asynchronously
             fetch('/api/chat/history', { headers })
@@ -119,7 +121,7 @@ function App() {
                         console.error("Failed to fetch history:", err);
                     }
                 })
-                .finally(() => setIsLoadingHistory(false));
+
 
             // Fetch Profile asynchronously
             fetch('/api/auth/profile', { headers })
@@ -155,12 +157,6 @@ function App() {
                     console.error("Failed to fetch profile:", err);
                     setOnboardingCompleted(true); // default to true on error so we don't lock out
                 });
-
-            // Fetch Courses asynchronously
-            fetch(`/api/market/courses?language=${language}`)
-                .then(res => res.json())
-                .then(coursesJson => setCourses(coursesJson))
-                .catch(err => console.error("Failed to fetch courses:", err));
         };
         fetchData();
 
@@ -338,6 +334,7 @@ function App() {
             audioRef.current = null;
         }
 
+        audioQueueRef.current = [];
         setVoiceStatus('idle');
         return true;
     };
@@ -389,11 +386,13 @@ function App() {
         }
     };
 
-    const playAudioResponse = (url: string) => {
+    const playAudioResponse = (url: string, onEnded?: () => void) => {
         console.log(`[AUDIO] Playing: ${url}`);
 
-        // Stop any existing audio
-        stopSpeaking();
+        if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current = null;
+        }
 
         const audio = new Audio(url);
         audioRef.current = audio;
@@ -404,21 +403,32 @@ function App() {
         };
         audio.onended = () => {
             console.log("[AUDIO] Playback ended");
-            setVoiceStatus('idle'); // Reset to idle when done
             audioRef.current = null;
+            if (onEnded) onEnded(); else setVoiceStatus('idle');
         };
         audio.onerror = (e) => {
             console.error("[AUDIO] Playback error:", e);
-            setVoiceStatus('idle');
             audioRef.current = null;
+            if (onEnded) onEnded(); else setVoiceStatus('idle');
         };
 
         // Play
         audio.play().catch(err => {
             console.error("[AUDIO] Play failed:", err);
-            setVoiceStatus('idle');
             audioRef.current = null;
+            if (onEnded) onEnded(); else setVoiceStatus('idle');
         });
+    };
+
+    const playNextAudioInQueue = () => {
+        if (audioQueueRef.current.length === 0) {
+            setVoiceStatus('idle');
+            return;
+        }
+        const nextUrl = audioQueueRef.current.shift();
+        if (nextUrl) {
+            playAudioResponse(nextUrl, playNextAudioInQueue);
+        }
     };
 
     const fetchAndPlayTTS = async (text: string, overrideLanguage?: string) => {
@@ -516,6 +526,7 @@ function App() {
             }
 
             formData.append('language', language);
+            formData.append('page_context', activeTab);
             // Optimization: Don't request audio yet. Get text first.
             formData.append('voice_enabled', 'false');
 
@@ -524,7 +535,7 @@ function App() {
                 headers['Authorization'] = `Bearer ${token}`;
             }
 
-            const response = await fetch('/api/chat', {
+            const response = await fetch('/api/chat/stream', {
                 method: 'POST',
                 headers: token ? { 'Authorization': `Bearer ${token}` } : undefined,
                 body: formData,
@@ -538,37 +549,65 @@ function App() {
 
             if (!response.ok) throw new Error("Server error");
 
-            const data = await response.json();
-
-            // Add messages to history IMMEDIATELY
             const userMsg: Message = {
                 id: Date.now().toString(),
-                text: data.user_text || text || "Voice Input",
+                text: text || "Voice Input",
                 sender: 'user',
                 timestamp: new Date()
             };
 
             const aiMsg: Message = {
                 id: (Date.now() + 1).toString(),
-                text: data.response_text,
+                text: "",
                 sender: 'ai',
                 timestamp: new Date()
             };
 
             setMessages(prev => [...prev, userMsg, aiMsg]);
 
-            if (data.detected_language && data.detected_language !== language) {
-                // UI language shouldn't automatically switch just because the user spoke in another language.
-                // setLanguage(data.detected_language);
-            }
+            const reader = response.body?.getReader();
+            const decoder = new TextDecoder();
+            let fullAiResponse = "";
+            let isFirstChunk = true;
 
-            // Now, fetch audio separately using the helper
-            if (audioBlob || text) {
-                // Split response to get summary for TTS
-                const summary = data.response_text.split('|||')[0].trim();
-                await fetchAndPlayTTS(summary, data.detected_language);
-            } else {
-                setVoiceStatus('idle');
+            if (reader) {
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    
+                    const chunkStr = decoder.decode(value, { stream: true });
+                    const lines = chunkStr.split('\\n');
+                    
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.substring(6));
+                                if (data.type === 'metadata') {
+                                    if (isFirstChunk) {
+                                        setMessages(prev => prev.map(m => m.id === userMsg.id ? { ...m, text: data.user_text || text || "Voice Input" } : m));
+                                        isFirstChunk = false;
+                                        if (data.detected_language && data.detected_language !== language) {
+                                            // UI language shouldn't automatically switch just because the user spoke in another language.
+                                        }
+                                    }
+                                } else if (data.type === 'text') {
+                                    fullAiResponse += data.text;
+                                    setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, text: fullAiResponse } : m));
+                                } else if (data.type === 'audio') {
+                                    const audioUrl = `data:audio/mp3;base64,${data.audio_base64}`;
+                                    audioQueueRef.current.push(audioUrl);
+                                    if (!audioRef.current || audioRef.current.ended || audioRef.current.paused) {
+                                        playNextAudioInQueue();
+                                    }
+                                } else if (data.type === 'complete') {
+                                    if (audioQueueRef.current.length === 0 && !audioRef.current) {
+                                        setVoiceStatus('idle');
+                                    }
+                                }
+                            } catch(e) {}
+                        }
+                    }
+                }
             }
 
         } catch (error: any) {
@@ -612,11 +651,9 @@ function App() {
                 activeTab={activeTab}
                 setActiveTab={(tab: any) => setActiveTab(tab)}
                 labels={{
-                    home: currentUI.home,
                     agriculture: currentUI.agriculture,
                     scanner: currentUI.scanner || 'Scan',
                     risk: currentUI.risk || 'Risk',
-                    skills: currentUI.skills,
                     settings: currentUI.settings
                 }}
             />
@@ -636,70 +673,15 @@ function App() {
                     </div>
                 )}
 
-                {activeTab === 'home' ? (
-                    <div className="flex flex-col h-full w-full relative text-base md:text-lg">
-                        {/* Chat Area - Full Height */}
-                        <div className="flex-1 overflow-y-auto px-4 pb-24 custom-scrollbar scroll-smooth">
-                            {isLoadingHistory ? (
-                                <div className="flex flex-col items-center justify-center h-full text-center opacity-80">
-                                    <div className="w-12 h-12 rounded-full border-t-2 border-r-2 border-blue-500 animate-spin mb-4" />
-                                    <h2 className="text-xl font-medium text-slate-300 animate-pulse">Loading history...</h2>
-                                </div>
-                            ) : messages.length === 0 ? (
-                                <div className="flex flex-col items-center justify-center h-full text-center opacity-60">
-                                    <div className="w-20 h-20 bg-white/5 rounded-full flex items-center justify-center mb-6 overflow-hidden border border-white/10 shadow-lg">
-                                        <img src="/logo.png" alt="EventHorizon AI" className="w-full h-full object-cover" />
-                                    </div>
-                                    <h2 className="text-2xl font-bold mb-2">EventHorizon AI</h2>
-                                    <p className="text-gray-400 max-w-md mx-auto">
-                                        Your intelligent assistant for agriculture and skills. Tap the mic or type to start.
-                                    </p>
-
-                                    {voiceStatus === 'listening' && <p className="mt-8 text-xl text-blue-400 animate-pulse font-medium">{currentUI.listening}</p>}
-                                    {voiceStatus === 'thinking' && <p className="mt-8 text-xl text-purple-400 animate-pulse font-medium">{currentUI.thinking}</p>}
-                                    {voiceStatus === 'speaking' && <p className="mt-8 text-xl text-blue-400 font-medium">{currentUI.speaking}</p>}
-                                </div>
-                            ) : (
-                                <div className="pt-20 space-y-6">
-                                    <ChatBox messages={messages} onReadAloud={fetchAndPlayTTS} />
-                                    {/* Status Indicators in Chat Flow */}
-                                    {voiceStatus === 'thinking' && (
-                                        <div className="flex gap-4 animate-fade-in pl-4">
-                                            <div className="w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center border border-purple-500/30">
-                                                <div className="w-2 h-2 bg-purple-400 rounded-full animate-ping" />
-                                            </div>
-                                            <div className="bg-white/5 rounded-2xl rounded-tl-none p-4 border border-white/10 flex items-center gap-3">
-                                                <span className="text-gray-300 text-sm">{currentUI.thinking}</span>
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-                            )}
-                            <div id="scroll-anchor" className="h-4" />
-                        </div>
-
-                        {/* New Futuristic Interactive AI Input Component */}
-                        <InteractiveAIInput
-                            voiceStatus={voiceStatus}
-                            onMicClick={handleMicClick}
-                            onSubmitText={(text) => handleChat(text)}
-                            networkQuality={audioPipeline.networkQuality}
-                            streamState={audioPipeline.streamState}
-                            bufferedChunks={audioPipeline.bufferedChunks}
-                            waveformLevel={audioPipeline.waveformLevel}
-                            recordingDuration={audioPipeline.recordingDuration}
-                            isRecording={audioPipeline.isRecording}
-                        />
-                    </div>
-                ) : activeTab === 'scanner' ? (
+                {activeTab === 'scanner' ? (
                     <VisualScanner
                         language={language}
                         token={token}
-                        onBack={() => setActiveTab('home')}
+                        onBack={() => setActiveTab('risk')}
                     />
                 ) : activeTab === 'risk' ? (
                     <RiskDashboard
-                        onBack={() => setActiveTab('home')}
+                        onBack={() => {}}
                         currentLanguage={language}
                         labels={currentUI}
                         defaultState={userLocation?.state}
@@ -707,27 +689,20 @@ function App() {
                     />
                 ) : activeTab === 'agriculture' ? (
                     <MarketDashboard
-                        onBack={() => setActiveTab('home')}
+                        onBack={() => {}}
                         currentLanguage={language}
                         labels={currentUI}
                         onMoreDetails={(query) => {
-                            setActiveTab('home');
+                            setActiveTab('risk');
                             // Small timeout to allow tab switch before triggering chat
                             setTimeout(() => {
                                 handleChat(`Tell me more details about ${query} market rates, including potential future trends and advice.`);
                             }, 100);
                         }}
                     />
-                ) : activeTab === 'skills' ? (
-                    <SkillsDashboard
-                        onBack={() => setActiveTab('home')}
-                        courses={courses}
-                        headerText={currentUI.skillsHeader}
-                        labels={currentUI}
-                    />
                 ) : (
                     <Settings
-                        onBack={() => setActiveTab('home')}
+                        onBack={() => {}}
                         messages={messages}
                         onDeleteMessage={deleteMessage}
                         onClearHistory={clearHistory}
@@ -759,16 +734,27 @@ function App() {
                     />
                 )}
 
-                {activeTab === 'home' && (
-                    <div className="absolute inset-0 z-0 flex items-center justify-between px-20 pointer-events-none">
-                        {/* InfoCards removed as per user request */}
-                    </div>
-                )}
+                <FloatingAssistant onClick={() => setIsAssistantOpen(true)} isOpen={isAssistantOpen} />
+                <AssistantDrawer 
+                    isOpen={isAssistantOpen}
+                    onClose={() => setIsAssistantOpen(false)}
+                    messages={messages}
+                    voiceStatus={voiceStatus}
+                    onMicClick={handleMicClick}
+                    onSubmitText={(text) => handleChat(text)}
+                    networkQuality={audioPipeline.networkQuality}
+                    streamState={audioPipeline.streamState}
+                    bufferedChunks={audioPipeline.bufferedChunks}
+                    waveformLevel={audioPipeline.waveformLevel}
+                    recordingDuration={audioPipeline.recordingDuration}
+                    isRecording={audioPipeline.isRecording}
+                    onReadAloud={fetchAndPlayTTS}
+                    currentUI={currentUI}
+                    pageContextText={activeTab === 'risk' ? 'Risk Dashboard' : activeTab === 'agriculture' ? 'Market Intelligence' : activeTab === 'scanner' ? 'Plant Doctor' : 'Settings'}
+                />
 
-                {/* MarketTicker removed as per user request */}
-
-                <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-[100px] pointer-events-none" />
-                <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-[100px] pointer-events-none" />
+                <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-primary/10 rounded-full blur-[100px] pointer-events-none" />
+                <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-secondary/10 rounded-full blur-[100px] pointer-events-none" />
             </main>
         </div>
     );

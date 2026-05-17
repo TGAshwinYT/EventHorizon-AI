@@ -44,7 +44,7 @@ NVIDIA_VISION_MODEL = os.getenv(
 
 def get_gemini_url():
     key = os.getenv("GEMINI_API_KEY", "")
-    return f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={key}"
+    return f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key={key}"
 
 # ── System Prompt for Vision Model ──
 VISION_SYSTEM_PROMPT = """/think
