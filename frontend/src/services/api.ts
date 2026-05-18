@@ -40,8 +40,7 @@ export const assistantApi = {
       responseType: 'blob'
     });
     
-    // Convert audio response Blob to local playing URL
-    const blob = new Blob([response.data], { type: 'audio/mpeg' });
-    return URL.createObjectURL(blob);
+    // Convert audio response Blob to local playing URL (uses actual type returned by server)
+    return URL.createObjectURL(response.data);
   }
 };

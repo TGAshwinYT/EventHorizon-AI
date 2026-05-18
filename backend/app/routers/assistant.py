@@ -93,7 +93,7 @@ def voice_tts(data: TTSRequest):
             raise HTTPException(status_code=500, detail="TTS generation failed in both primary and fallback engines.")
             
         # Return audio as binary stream
-        return Response(content=audio_content, media_type="audio/mpeg")
+        return Response(content=audio_content, media_type="audio/wav")
         
     except Exception as e:
         print(f"[ASSISTANT TTS ERROR] {e}")

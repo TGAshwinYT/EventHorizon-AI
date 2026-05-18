@@ -239,8 +239,8 @@ class GeminiService:
             }
         }
         
-        # Multimodal Audio output is supported on specialized Gemini 3.1 TTS, 2.5, and 2.0 models
-        models_to_try = ["gemini-3.1-flash-tts-preview", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.0-flash-exp"]
+        # Multimodal Audio output is supported on specialized Gemini 3.1 TTS model
+        models_to_try = ["gemini-3.1-flash-tts-preview"]
         
         for model in models_to_try:
             try:
@@ -255,8 +255,55 @@ class GeminiService:
                         if "inlineData" in part:
                             data_b64 = part["inlineData"].get("data")
                             if data_b64:
-                                print(f"[GEMINI TTS SUCCESS] Generated audio from {model} model successfully.")
-                                return base64.b64decode(data_b64)
+                                raw_pcm = base64.b64decode(data_b64)
+                                mime_type = part["inlineData"].get("mimeType", "")
+                                
+                                # If Google API returned raw L16 PCM audio, wrap it in standard RIFF WAV header
+                                if "audio/l16" in mime_type or not raw_pcm.startswith(b"RIFF"):
+                                    import struct
+                                    sample_rate = 24000
+                                    # Extract sample rate if present in mimeType, e.g. "rate=24000"
+                                    if "rate=" in mime_type:
+                                        try:
+                                            sample_rate = int(mime_type.split("rate=")[1].split(";")[0].strip())
+                                        except Exception:
+                                            pass
+                                            
+                                    channels = 1
+                                    if "channels=" in mime_type:
+                                        try:
+                                            channels = int(mime_type.split("channels=")[1].split(";")[0].strip())
+                                        except Exception:
+                                            pass
+                                            
+                                    num_channels = channels
+                                    bytes_per_sample = 2 # 16-bit
+                                    block_align = num_channels * bytes_per_sample
+                                    byte_rate = sample_rate * block_align
+                                    data_size = len(raw_pcm)
+                                    chunk_size = 36 + data_size
+                                    
+                                    wav_header = struct.pack(
+                                        '<4sI4s4sIHHIIHH4sI',
+                                        b'RIFF',          # ChunkID
+                                        chunk_size,      # ChunkSize
+                                        b'WAVE',          # Format
+                                        b'fmt ',          # Subchunk1ID
+                                        16,              # Subchunk1Size
+                                        1,               # AudioFormat (1 for PCM)
+                                        num_channels,    # NumChannels
+                                        sample_rate,     # SampleRate
+                                        byte_rate,       # ByteRate
+                                        block_align,     # BlockAlign
+                                        16,              # BitsPerSample (16-bit)
+                                        b'data',          # Subchunk2ID
+                                        data_size        # Subchunk2Size
+                                    )
+                                    print(f"[GEMINI TTS SUCCESS] Wrapped raw L16 PCM ({sample_rate}Hz, mono) in WAV header successfully.")
+                                    return wav_header + raw_pcm
+                                
+                                print(f"[GEMINI TTS SUCCESS] Generated native audio file from {model} model successfully.")
+                                return raw_pcm
                     print(f"[GEMINI TTS WARNING] Model {model} returned success but no inlineData audio found.")
                 else:
                     print(f"[GEMINI TTS WARNING] Model {model} failed with status {response.status_code}: {response.text[:200]}")

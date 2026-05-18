@@ -27,13 +27,34 @@ export function usePageContext() {
 
   const triggerPageAnalysis = async () => {
     try {
-      const bodyClone = document.body.cloneNode(true) as HTMLElement;
+      // High-performance live DOM Depth-First Search (DFS) traversal
+      const textPieces: string[] = [];
+      const noiseTags = new Set(['SCRIPT', 'STYLE', 'NAV', 'FOOTER', 'HEADER', 'SVG', 'BUTTON', 'IFRAME', 'NOSCRIPT']);
+      const noiseIds = new Set(['assistant-drawer-container', 'floating-assistant-orb']);
       
-      // Remove noise elements and the entire AI assistant interface
-      const noiseSelectors = 'script, style, nav, footer, header, svg, button, iframe, noscript, #assistant-drawer-container, #floating-assistant-orb';
-      bodyClone.querySelectorAll(noiseSelectors).forEach(el => el.remove());
+      const traverse = (node: Node) => {
+        if (node.nodeType === Node.ELEMENT_NODE) {
+          const el = node as HTMLElement;
+          // Prune noise elements immediately to avoid traversing their subtrees
+          if (noiseTags.has(el.tagName) || (el.id && noiseIds.has(el.id))) {
+            return;
+          }
+          // DFS recursion over active children
+          const children = el.childNodes;
+          for (let i = 0; i < children.length; i++) {
+            traverse(children[i]);
+          }
+        } else if (node.nodeType === Node.TEXT_NODE) {
+          const text = node.textContent;
+          if (text) {
+            textPieces.push(text);
+          }
+        }
+      };
       
-      const pageText = bodyClone.innerText || bodyClone.textContent || '';
+      traverse(document.body);
+      
+      const pageText = textPieces.join(' ');
       // Limit to 4000 characters to keep payload light
       const sanitizedText = pageText.replace(/\s+/g, ' ').trim().slice(0, 4000);
       

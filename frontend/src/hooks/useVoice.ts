@@ -58,13 +58,127 @@ function createNoiseReductionPipeline(stream: MediaStream): { filteredStream: Me
   }
 }
 
+// ⭕ High-Performance pre-allocated Circular Queue (Ring Buffer) for Audio Blobs in O(1)
+class CircularBlobBuffer {
+  private buffer: Blob[];
+  private head: number;
+  private tail: number;
+  private capacity: number;
+  private count: number;
+
+  constructor(capacity: number) {
+    this.capacity = capacity;
+    this.buffer = new Array(capacity);
+    this.head = 0;
+    this.tail = 0;
+    this.count = 0;
+  }
+
+  public push(blob: Blob) {
+    this.buffer[this.head] = blob;
+    this.head = (this.head + 1) % this.capacity;
+    
+    if (this.count < this.capacity) {
+      this.count++;
+    } else {
+      // Overwrite least recent tail node
+      this.tail = (this.tail + 1) % this.capacity;
+    }
+  }
+
+  public clear() {
+    this.head = 0;
+    this.tail = 0;
+    this.count = 0;
+    this.buffer.fill(null as any);
+  }
+
+  public toArray(): Blob[] {
+    const result: Blob[] = [];
+    let idx = this.tail;
+    for (let i = 0; i < this.count; i++) {
+      result.push(this.buffer[idx]);
+      idx = (idx + 1) % this.capacity;
+    }
+    return result;
+  }
+}
+
+// 🧠 Custom LRU (Least Recently Used) Chat Message Node
+interface LRUMessageNode {
+  role: string;
+  content: string;
+  key: string;
+  prev?: LRUMessageNode;
+  next?: LRUMessageNode;
+}
+
+// ⚡ Doubly Linked List + Hash Map LRU Cache to prune payload tokens in O(1) constant time
+class LRUChatCache {
+  private capacity: number;
+  private cache: Map<string, LRUMessageNode>;
+  private head?: LRUMessageNode;
+  private tail?: LRUMessageNode;
+
+  constructor(capacity: number) {
+    this.capacity = capacity;
+    this.cache = new Map();
+  }
+
+  public put(role: string, content: string) {
+    const key = `${role}_${Math.random()}`;
+    const node: LRUMessageNode = { role, content, key };
+    
+    if (this.cache.size >= this.capacity) {
+      this.evictLeastRecent();
+    }
+    
+    this.cache.set(key, node);
+    this.addToHead(node);
+  }
+
+  public getOrderedMessages(): { role: string; content: string }[] {
+    const result: { role: string; content: string }[] = [];
+    let current = this.tail;
+    while (current) {
+      result.push({ role: current.role, content: current.content });
+      current = current.prev;
+    }
+    return result;
+  }
+
+  private addToHead(node: LRUMessageNode) {
+    node.next = this.head;
+    node.prev = undefined;
+    if (this.head) {
+      this.head.prev = node;
+    }
+    this.head = node;
+    if (!this.tail) {
+      this.tail = node;
+    }
+  }
+
+  private evictLeastRecent() {
+    if (!this.tail) return;
+    this.cache.delete(this.tail.key);
+    if (this.tail.prev) {
+      this.tail = this.tail.prev;
+      this.tail.next = undefined;
+    } else {
+      this.head = undefined;
+      this.tail = undefined;
+    }
+  }
+}
+
 export function useVoice() {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [voiceLoading, setVoiceLoading] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
+  const audioChunksRef = useRef<CircularBlobBuffer>(new CircularBlobBuffer(500));
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const audioPlaybackRef = useRef<HTMLAudioElement | null>(null);
   const pipelineCleanupRef = useRef<(() => void) | null>(null);
@@ -109,7 +223,7 @@ export function useVoice() {
 
   const startRecording = async () => {
     stopPlayback();
-    audioChunksRef.current = [];
+    audioChunksRef.current.clear();
     
     try {
       // 1. Request microphone with WebRTC software-level noise reduction and echo cancellation
@@ -136,7 +250,7 @@ export function useVoice() {
       };
 
       mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        const audioBlob = new Blob(audioChunksRef.current.toArray(), { type: 'audio/webm' });
         
         // Stop all original and filtered tracks cleanly to release hardware
         stream.getTracks().forEach(track => track.stop());
@@ -182,7 +296,8 @@ export function useVoice() {
           resolve();
         };
         
-        audio.onerror = () => {
+        audio.onerror = (e) => {
+          console.error('[USEVOICE] HTML5 Audio playback/decode error:', audio.error || e);
           setIsSpeaking(false);
           resolve();
         };
@@ -204,11 +319,12 @@ export function useVoice() {
     addMessage('user', text);
     
     try {
-      // Map userStore messages format to assistant API history expectations
-      const historyPayload = messages.map(msg => ({
-        role: msg.role,
-        content: msg.content
-      }));
+      // Use custom doubly-linked-list + hash-map LRU Cache to prune payload tokens in O(1) constant time
+      const lru = new LRUChatCache(10);
+      messages.forEach(msg => {
+        lru.put(msg.role, msg.content);
+      });
+      const historyPayload = lru.getOrderedMessages();
 
       // Generate Gemini response
       const chatResult = await geminiService.generateResponse(

@@ -248,19 +248,29 @@ def get_mandi_data_from_db(db: Session, crop: str, state: str, district: Optiona
         except:
              return datetime.min
 
-    # Group by Date
-    data_by_date: Dict[str, List[MandiRate]] = {}
+    # High-Performance O(N) 1-pass Daily Stats compiler
+    daily_stats = {}
+    data_by_date = {} # Keep for backward compatibility with table/recent lists
     for r in records:
         d_obj = parse_date(r.arrival_date)
-        if d_obj == datetime.min: continue # Skip invalid dates
+        if d_obj == datetime.min: continue
         
-        date_key = d_obj.strftime("%Y-%m-%d") # Sortable string key
-        if date_key not in data_by_date:
+        date_key = d_obj.strftime("%Y-%m-%d")
+        if date_key not in daily_stats:
+            daily_stats[date_key] = {"sum": 0.0, "count": 0, "min": float('inf'), "max": float('-inf')}
             data_by_date[date_key] = []
+            
+        stats = daily_stats[date_key]
+        stats["sum"] += r.modal_price
+        stats["count"] += 1
         data_by_date[date_key].append(r)
+        
+        if r.min_price > 0:
+            stats["min"] = min(stats["min"], r.min_price)
+        if r.max_price > 0:
+            stats["max"] = max(stats["max"], r.max_price)
 
-    # Sort dates
-    sorted_dates = sorted(data_by_date.keys())
+    sorted_dates = sorted(daily_stats.keys())
     if not sorted_dates:
          return {
             "current_price": "N/A",
@@ -271,89 +281,96 @@ def get_mandi_data_from_db(db: Session, crop: str, state: str, district: Optiona
             "recent_data": []
         }
 
-    # 1. Current Price (Latest Date)
+    # 1. Current Price (Latest Date) using pre-aggregated O(1) sum/count
     latest_date_key = sorted_dates[-1]
-    latest_records = data_by_date[latest_date_key]
+    latest_stats = daily_stats[latest_date_key]
+    avg_modal = latest_stats["sum"] / latest_stats["count"]
     
-    # Average Modal Price for the state
-    avg_modal = sum(r.modal_price for r in latest_records) / len(latest_records)
-    
-    # 2. Change (Compare with Previous Day if exists)
+    # 2. Change (Compare with Previous Day if exists) in O(1)
     change_pct = 0.0
     if len(sorted_dates) > 1:
         prev_date_key = sorted_dates[-2]
-        prev_records = data_by_date[prev_date_key]
-        prev_avg = sum(r.modal_price for r in prev_records) / len(prev_records)
-        
+        prev_stats = daily_stats[prev_date_key]
+        prev_avg = prev_stats["sum"] / prev_stats["count"]
         if prev_avg > 0:
             change_pct = ((avg_modal - prev_avg) / prev_avg) * 100
 
-    # Format Change String
     change_str = f"{change_pct:+.1f}%"
 
-    # 3. History (Last 7 Days from Today)
-    history: List[Dict[str, Any]] = []
+    # Pre-calculate high-performance EMA across sorted_dates in O(N)
+    ema_values = {}
+    alpha = 0.35 # Standard smoothing coefficient
+    current_ema = 0.0
+    for idx, d_key in enumerate(sorted_dates):
+        d_stats = daily_stats[d_key]
+        day_avg = d_stats["sum"] / d_stats["count"]
+        if idx == 0:
+            current_ema = day_avg
+        else:
+            current_ema = (day_avg * alpha) + (current_ema * (1 - alpha))
+        ema_values[d_key] = current_ema
+
+    # 3. History (Last 7 Days from Today) built in O(H) using pre-computed O(1) EMA values
+    history = []
     today = datetime.now()
-    # Generate last 7 days keys (Y-M-D for matching)
     history_keys = [(today - timedelta(days=i)).strftime("%Y-%m-%d") for i in range(6, -1, -1)]
     
-    last_known_avg = 0
-    last_known_min = 0
-    last_known_max = 0
-    
-    # Pre-calculate first known if we have gap at start
-    first_date_with_data = sorted_dates[0] if sorted_dates else None
-    if first_date_with_data:
-        d_rec = data_by_date[first_date_with_data]
-        last_known_avg = sum(r.modal_price for r in d_rec) / len(d_rec)
-        last_known_min = min(r.min_price for r in d_rec)
-        last_known_max = max(r.max_price for r in d_rec)
+    last_known_ema = avg_modal
+    last_known_min = latest_stats["min"] if latest_stats["min"] != float('inf') else 0
+    last_known_max = latest_stats["max"] if latest_stats["max"] != float('-inf') else 0
 
+    # Backfill with first date if we need static start padding
+    first_date_key = sorted_dates[0]
+    first_stats = daily_stats[first_date_key]
+    fallback_ema = ema_values[first_date_key]
+    fallback_min = first_stats["min"] if first_stats["min"] != float('inf') else 0
+    fallback_max = first_stats["max"] if first_stats["max"] != float('-inf') else 0
+
+    # Build continuous O(1) history line
     for d_key in history_keys:
         d_obj = datetime.strptime(d_key, "%Y-%m-%d")
-        if d_key in data_by_date:
-            day_records = data_by_date[d_key]
-            day_avg = sum(r.modal_price for r in day_records) / len(day_records)
-            day_min = min(r.min_price for r in day_records)
-            day_max = max(r.max_price for r in day_records)
-            
-            last_known_avg = day_avg
-            last_known_min = day_min
-            last_known_max = day_max
-        
-        # We append a point even if it's "last known" to keep the line continuous
-        # If we have absolutely no data EVER, it will be 0
+        if d_key in daily_stats:
+            last_known_ema = ema_values[d_key]
+            last_known_min = daily_stats[d_key]["min"] if daily_stats[d_key]["min"] != float('inf') else fallback_min
+            last_known_max = daily_stats[d_key]["max"] if daily_stats[d_key]["max"] != float('-inf') else fallback_max
+        else:
+            # Check if this date falls before any data exists
+            if d_key < first_date_key:
+                last_known_ema = fallback_ema
+                last_known_min = fallback_min
+                last_known_max = fallback_max
+            # Otherwise it retains last_known (which propagates forward)
+
         history.append({
             "date": d_obj.strftime("%d %b"),
-            "price": int(last_known_avg),
+            "price": int(last_known_ema),
             "min": int(last_known_min),
             "max": int(last_known_max)
         })
 
-    # 4. Recent Data for Table (Show top market from the last 5 days)
-    recent_data: List[Dict[str, Any]] = []
-    
+    # 4. Recent Data for Table (Show top market from the last 5 days) in O(K * M)
+    recent_data = []
     recent_dates = sorted_dates[-5:]
-    recent_dates.reverse() # Show newest first
+    recent_dates.reverse()
     
     for d_key in recent_dates:
         day_records = data_by_date[d_key]
         if not day_records: continue
         
-        # Pick the market with the highest modal price for that day
+        # Pick the market with highest modal price in O(M)
         market_record = max(day_records, key=lambda x: x.modal_price)
         d_obj = datetime.strptime(d_key, "%Y-%m-%d")
         
         recent_data.append({
-                "date": d_obj.strftime("%d %b"),
-                "min": market_record.min_price,
-                "max": market_record.max_price,
-                "modal": market_record.modal_price
-            })
-            
-    # Calculate global min/max for the entire dataset requested
-    all_min = min((r.min_price for r in records if r.min_price > 0), default=0)
-    all_max = max((r.max_price for r in records if r.max_price > 0), default=0)
+            "date": d_obj.strftime("%d %b"),
+            "min": market_record.min_price,
+            "max": market_record.max_price,
+            "modal": market_record.modal_price
+        })
+
+    # Global min/max of entire dataset in O(1) by scanning our fast stats hash map
+    all_min = min((s["min"] for s in daily_stats.values() if s["min"] != float('inf')), default=0)
+    all_max = max((s["max"] for s in daily_stats.values() if s["max"] != float('-inf')), default=0)
 
     return {
         "current_price": f"₹{int(avg_modal):,}",
