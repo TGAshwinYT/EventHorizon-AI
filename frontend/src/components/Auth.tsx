@@ -81,41 +81,51 @@ const Auth = ({ onLogin }: AuthProps) => {
     };
 
     return (
-        <div className="flex flex-col items-center justify-center p-8 bg-black/40 backdrop-blur-md rounded-2xl border border-white/10 w-full max-w-md mx-auto shadow-2xl">
-            <div className="mb-6 flex justify-center">
-                <img src="/logo.png" alt="EventHorizon AI Logo" className="w-20 h-20 rounded-full shadow-[0_0_20px_rgba(59,130,246,0.5)] border-2 border-white/10" />
+        <div className="flex flex-col items-center justify-center p-8 bg-[#0D1F16]/95 backdrop-blur-xl rounded-3xl border border-[#1A4731] w-full max-w-md mx-auto shadow-2xl relative overflow-hidden">
+            {/* Ambient gold/green accent border glow */}
+            <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-[#F5A623]/30 to-transparent pointer-events-none" />
+
+            <div className="mb-6 flex justify-center relative">
+                {/* Logo glow */}
+                <div className="absolute -inset-1 rounded-full bg-gradient-to-tr from-[#1A4731] via-[#F5A623]/40 to-transparent blur-md opacity-70 animate-pulse pointer-events-none" />
+                <img src="/logo.png" alt="EventHorizon AI Logo" className="relative w-20 h-20 rounded-full shadow-[0_0_20px_rgba(245,166,35,0.25)] border-2 border-[#1A4731]" />
             </div>
-            <h2 className="text-3xl font-bold text-white mb-6 bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-500 text-center">
+
+            <h2 className="text-3xl font-extrabold text-transparent bg-clip-text bg-gradient-to-r from-[#F5A623] via-white to-[#F5A623] mb-6 text-center tracking-tight">
                 {isReset ? 'Reset Password' : (isLogin ? 'Welcome Back' : 'Join EventHorizon')}
             </h2>
 
             {error && (
-                <div className={`mb-4 p-3 rounded-lg text-sm w-full text-center ${error.includes('successful') ? 'bg-green-500/20 text-green-300' : 'bg-red-500/20 text-red-300'}`}>
+                <div className={`mb-4 p-3.5 rounded-xl text-xs font-bold w-full text-center ${
+                    error.includes('successful') 
+                        ? 'bg-[#eef7f2] border border-[#d2edd7] text-[#1A4731]' 
+                        : 'bg-red-500/10 border border-red-500/20 text-red-400'
+                }`}>
                     {error}
                 </div>
             )}
 
             <form onSubmit={handleSubmit} className="w-full space-y-4">
                 <div>
-                    <label className="text-sm text-gray-400 mb-1 block">Username</label>
+                    <label className="text-xs font-bold text-[#c0d0c0] uppercase tracking-wider mb-1.5 block">Username</label>
                     <input
                         type="text"
                         value={username}
                         onChange={(e) => setUsername(e.target.value)}
-                        className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                        className="w-full bg-[#0D1F16]/60 border border-[#1A4731]/80 rounded-xl px-4 py-3 text-white focus:border-[#F5A623] focus:ring-1 focus:ring-[#F5A623] outline-none transition-all placeholder-[#5a6e5a] font-semibold text-sm"
                         required
                     />
                 </div>
 
                 {!isReset && (
                     <div>
-                        <div className="flex justify-between items-center mb-1">
-                            <label className="text-sm text-gray-400 block">Password</label>
+                        <div className="flex justify-between items-center mb-1.5">
+                            <label className="text-xs font-bold text-[#c0d0c0] uppercase tracking-wider block">Password</label>
                             {isLogin && (
                                 <button
                                     type="button"
                                     onClick={() => { setIsReset(true); setError(''); }}
-                                    className="text-xs text-blue-400 hover:text-blue-300"
+                                    className="text-xs text-[#F5A623] hover:text-[#d48c17] font-extrabold transition-colors cursor-pointer"
                                 >
                                     Forgot Password?
                                 </button>
@@ -126,12 +136,12 @@ const Auth = ({ onLogin }: AuthProps) => {
                                 type={showPassword ? 'text' : 'password'}
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
-                                className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all pr-10"
+                                className="w-full bg-[#0D1F16]/60 border border-[#1A4731]/80 rounded-xl px-4 py-3 text-white focus:border-[#F5A623] focus:ring-1 focus:ring-[#F5A623] outline-none transition-all pr-10 placeholder-[#5a6e5a] font-semibold text-sm"
                                 required
                             />
                             <button
                                 type="button"
-                                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+                                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#c0d0c0] hover:text-white transition-colors cursor-pointer"
                                 onClick={() => setShowPassword(!showPassword)}
                             >
                                 {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
@@ -143,18 +153,18 @@ const Auth = ({ onLogin }: AuthProps) => {
                 {isReset && (
                     <>
                         <div>
-                            <label className="text-sm text-gray-400 mb-1 block">New Password</label>
+                            <label className="text-xs font-bold text-[#c0d0c0] uppercase tracking-wider mb-1.5 block">New Password</label>
                             <div className="relative">
                                 <input
                                     type={showNewPassword ? 'text' : 'password'}
                                     value={newPassword}
                                     onChange={(e) => setNewPassword(e.target.value)}
-                                    className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all pr-10"
+                                    className="w-full bg-[#0D1F16]/60 border border-[#1A4731]/80 rounded-xl px-4 py-3 text-white focus:border-[#F5A623] focus:ring-1 focus:ring-[#F5A623] outline-none transition-all pr-10 placeholder-[#5a6e5a] font-semibold text-sm"
                                     required
                                 />
                                 <button
                                     type="button"
-                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+                                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#c0d0c0] hover:text-white transition-colors cursor-pointer"
                                     onClick={() => setShowNewPassword(!showNewPassword)}
                                 >
                                     {showNewPassword ? <EyeOff size={18} /> : <Eye size={18} />}
@@ -162,18 +172,18 @@ const Auth = ({ onLogin }: AuthProps) => {
                             </div>
                         </div>
                         <div>
-                            <label className="text-sm text-gray-400 mb-1 block">Confirm Password</label>
+                            <label className="text-xs font-bold text-[#c0d0c0] uppercase tracking-wider mb-1.5 block">Confirm Password</label>
                             <div className="relative">
                                 <input
                                     type={showConfirmPassword ? 'text' : 'password'}
                                     value={confirmPassword}
                                     onChange={(e) => setConfirmPassword(e.target.value)}
-                                    className="w-full bg-white/5 border border-white/10 rounded-lg px-4 py-2 text-white focus:ring-2 focus:ring-blue-500 outline-none transition-all pr-10"
+                                    className="w-full bg-[#0D1F16]/60 border border-[#1A4731]/80 rounded-xl px-4 py-3 text-white focus:border-[#F5A623] focus:ring-1 focus:ring-[#F5A623] outline-none transition-all pr-10 placeholder-[#5a6e5a] font-semibold text-sm"
                                     required
                                 />
                                 <button
                                     type="button"
-                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white"
+                                    className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#c0d0c0] hover:text-white transition-colors cursor-pointer"
                                     onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                                 >
                                     {showConfirmPassword ? <EyeOff size={18} /> : <Eye size={18} />}
@@ -186,7 +196,7 @@ const Auth = ({ onLogin }: AuthProps) => {
                 <button
                     type="submit"
                     disabled={loading}
-                    className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-semibold py-2 rounded-lg transition-all transform hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed mt-4"
+                    className="w-full bg-[#1A4731] hover:bg-[#123323] border border-[#F5A623]/40 text-white font-extrabold py-3.5 rounded-xl transition-all shadow-lg hover:shadow-xl hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed mt-6 cursor-pointer"
                 >
                     {loading ? 'Processing...' : (isReset ? 'Reset Password' : (isLogin ? 'Sign In' : 'Create Account'))}
                 </button>
@@ -195,7 +205,7 @@ const Auth = ({ onLogin }: AuthProps) => {
                     <button
                         type="button"
                         onClick={() => { setIsReset(false); setError(''); }}
-                        className="w-full text-sm text-gray-400 hover:text-white mt-2"
+                        className="w-full text-sm text-[#c0d0c0] hover:text-white font-bold mt-3 transition-colors cursor-pointer"
                     >
                         Back to Login
                     </button>
@@ -203,11 +213,11 @@ const Auth = ({ onLogin }: AuthProps) => {
             </form>
 
             {!isReset && (
-                <div className="mt-6 text-sm text-gray-400">
+                <div className="mt-6 text-sm text-[#c0d0c0] font-semibold">
                     {isLogin ? "Don't have an account? " : "Already have an account? "}
                     <button
                         onClick={() => { setIsLogin(!isLogin); setError(''); }}
-                        className="text-blue-400 hover:text-blue-300 font-semibold ml-1"
+                        className="text-[#F5A623] hover:text-[#d48c17] font-extrabold ml-1 cursor-pointer transition-colors"
                     >
                         {isLogin ? 'Sign Up' : 'Log In'}
                     </button>

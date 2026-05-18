@@ -11,13 +11,21 @@ from app.database import auth_engine
 from sqlalchemy import text
 
 with auth_engine.connect() as conn:
-    try:
-        conn.execute(text('ALTER TABLE users ADD COLUMN language VARCHAR;'))
-        conn.execute(text('ALTER TABLE users ADD COLUMN state VARCHAR;'))
-        conn.execute(text('ALTER TABLE users ADD COLUMN district VARCHAR;'))
-        conn.execute(text('ALTER TABLE users ADD COLUMN mandal VARCHAR;'))
-        conn.execute(text('ALTER TABLE users ADD COLUMN onboarding_completed INTEGER DEFAULT 0;'))
-        conn.commit()
-        print('Schema updated successfully!')
-    except Exception as e:
-        print(f"Error: {e}")
+    columns_to_add = [
+        ('language', 'VARCHAR'),
+        ('state', 'VARCHAR'),
+        ('district', 'VARCHAR'),
+        ('mandal', 'VARCHAR'),
+        ('onboarding_completed', 'INTEGER DEFAULT 0'),
+        ('crops', 'TEXT'),
+        ('alerts_enabled', 'INTEGER DEFAULT 1')
+    ]
+    for col_name, col_type in columns_to_add:
+        try:
+            conn.execute(text(f'ALTER TABLE users ADD COLUMN {col_name} {col_type};'))
+            conn.commit()
+            print(f"Column '{col_name}' added successfully!")
+        except Exception as e:
+            conn.rollback()
+            print(f"Column '{col_name}' check: already exists or skipped")
+    print('Schema updates processing complete!')

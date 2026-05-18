@@ -2,7 +2,6 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from app.services.ceda_api import fetch_ceda_mandi_prices
 from app.database import MandiSessionLocal, AuthSessionLocal, debug_print
-from app.models import ChatHistory
 from datetime import datetime, timedelta
 
 # Initialize AsyncIOScheduler
@@ -24,22 +23,6 @@ async def scheduled_mandi_task():
     finally:
         db.close()
 
-async def scheduled_cleanup_task():
-    """
-    Deletes chat history older than 30 days.
-    """
-    debug_print("[Scheduler] Running daily chat history cleanup...")
-    db = AuthSessionLocal()
-    try:
-        cutoff_date = datetime.utcnow() - timedelta(days=30)
-        deleted_count = db.query(ChatHistory).filter(ChatHistory.timestamp < cutoff_date).delete()
-        db.commit()
-        debug_print(f"[Scheduler] Cleanup finished. Deleted {deleted_count} messages.")
-    except Exception as e:
-        debug_print(f"[Scheduler] Cleanup failed: {e}")
-    finally:
-        db.close()
-
 def start_scheduler():
     """
     Starts the AsyncIOScheduler and schedules the cron jobs.
@@ -50,14 +33,6 @@ def start_scheduler():
             scheduled_mandi_task, 
             CronTrigger(hour=2, minute=0), 
             id='mandi_daily_fetch', 
-            replace_existing=True
-        )
-        
-        # Schedule History Cleanup daily at 03:00 AM
-        scheduler.add_job(
-            scheduled_cleanup_task, 
-            CronTrigger(hour=3, minute=0), 
-            id='history_daily_cleanup', 
             replace_existing=True
         )
         

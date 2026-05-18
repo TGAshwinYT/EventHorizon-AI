@@ -1,25 +1,20 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
-
-
 import MarketDashboard from './components/MarketDashboard';
 import Settings from './components/Settings';
 import VisualScanner from './components/VisualScanner';
 import RiskDashboard from './components/RiskDashboard';
 import Auth from './components/Auth';
-import Onboarding from './components/Onboarding';
+import OnboardingFlow from './components/OnboardingFlow';
 import { AlertCircle } from 'lucide-react';
 
-import FloatingAssistant from './components/Assistant/FloatingAssistant';
-import AssistantDrawer from './components/Assistant/AssistantDrawer';
-import { useAudioPipeline } from './hooks/useAudioPipeline';
-
-interface Message {
-    id: string;
-    text: string;
-    sender: 'user' | 'ai';
-    timestamp: Date;
-}
+// New Voice Assistant integrations
+import { useUserStore } from './store/userStore';
+import FloatingAssistant from './components/FloatingAssistant';
+import AssistantDrawer from './components/AssistantDrawer';
+import WakeWord from './components/WakeWord';
+import PageContextBanner from './components/PageContextBanner';
+import AlertBell from './components/AlertBell';
 
 interface ProfileUpdate {
     displayName?: string;
@@ -32,8 +27,6 @@ function App() {
     const [username, setUsername] = useState<string | null>(sessionStorage.getItem('username'));
     const [displayName, setDisplayName] = useState<string | null>(sessionStorage.getItem('display_name'));
     const [avatarUrl, setAvatarUrl] = useState<string | null>(sessionStorage.getItem('avatar_url'));
-
-    const [voiceStatus, setVoiceStatus] = useState<'idle' | 'listening' | 'thinking' | 'speaking'>('idle');
 
     const [language, setLanguage] = useState(localStorage.getItem('language') || 'en');
     const [onboardingCompleted, setOnboardingCompleted] = useState<boolean | null>(null);
@@ -54,17 +47,11 @@ function App() {
             }).catch(console.error);
         }
     };
-    const [connectionError, setConnectionError] = useState(false);
+    const [connectionError] = useState(false);
     const [activeTab, setActiveTab] = useState<'agriculture' | 'scanner' | 'risk' | 'settings'>('risk');
-    const [isAssistantOpen, setIsAssistantOpen] = useState(false);
 
-
-    const [messages, setMessages] = useState<Message[]>([]);
-
-
-    const audioRef = useRef<HTMLAudioElement | null>(null);
-    const abortControllerRef = useRef<AbortController | null>(null);
-    const audioQueueRef = useRef<string[]>([]);
+    const setStoreToken = useUserStore((state) => state.setToken);
+    const fetchProfile = useUserStore((state) => state.fetchProfile);
 
     // Check auth on mount and handle migration/cleanup
     useEffect(() => {
@@ -78,6 +65,7 @@ function App() {
             setUsername(storedUser);
             setDisplayName(storedDisplayName);
             setAvatarUrl(storedAvatarUrl);
+            setStoreToken(storedToken);
         }
 
         // Migration/Cleanup: Remove legacy auth data from localStorage
@@ -91,37 +79,17 @@ function App() {
     }, []);
 
     useEffect(() => {
+        if (token) {
+            setStoreToken(token);
+            fetchProfile();
+        }
+    }, [token]);
+
+    useEffect(() => {
         if (!token) return;
 
         const fetchData = () => {
             const headers = { 'Authorization': `Bearer ${token}` };
-
-
-
-            // Fetch History asynchronously
-            fetch('/api/chat/history', { headers })
-                .then(res => {
-                    if (res.status === 401) throw new Error("Unauthorized");
-                    return res.json();
-                })
-                .then(historyJson => {
-                    if (Array.isArray(historyJson)) {
-                        const parsedHistory = historyJson.map((msg: any) => ({
-                            ...msg,
-                            timestamp: new Date(msg.timestamp)
-                        }));
-                        setMessages(parsedHistory);
-                    }
-                })
-                .catch(err => {
-                    if (err.message === "Unauthorized") {
-                        console.log("Token expired. Logging out.");
-                        handleLogout();
-                    } else {
-                        console.error("Failed to fetch history:", err);
-                    }
-                })
-
 
             // Fetch Profile asynchronously
             fetch('/api/auth/profile', { headers })
@@ -174,6 +142,7 @@ function App() {
         sessionStorage.setItem('username', newUsername);
         setToken(newToken);
         setUsername(newUsername);
+        setStoreToken(newToken);
     };
 
     const handleLogout = () => {
@@ -185,7 +154,7 @@ function App() {
         setUsername(null);
         setDisplayName(null);
         setAvatarUrl(null);
-        setMessages([]);
+        setStoreToken(null);
     };
 
     // Localization for UI status messages & Navigation
@@ -323,310 +292,13 @@ function App() {
 
 
 
-    const stopSpeaking = () => {
-        // Stop browser TTS
-        window.speechSynthesis.cancel();
 
-        // Stop custom audio if playing
-        if (audioRef.current) {
-            audioRef.current.pause();
-            audioRef.current.currentTime = 0;
-            audioRef.current = null;
-        }
-
-        audioQueueRef.current = [];
-        setVoiceStatus('idle');
-        return true;
-    };
-
-    // --- Audio Pipeline (Opus @ 12kbps, WebSocket streaming with fallback) ---
-    const audioPipeline = useAudioPipeline({
-        token: token ?? undefined,
-        useFallback: true, // Use FormData fallback until WS backend is ready
-    });
-
-    // When pipeline finishes recording in fallback mode, send the blob
-    useEffect(() => {
-        if (!audioPipeline.isRecording && voiceStatus === 'listening') {
-            const blob = audioPipeline.getRecordedBlob();
-            console.log("[App] Recording stopped. Blob size:", blob?.size);
-            if (blob && blob.size > 0) {
-                handleChat(null, blob);
-            } else {
-                console.warn("[App] No audio blob generated or size is 0.");
-                setVoiceStatus('idle');
-            }
-        }
-    }, [audioPipeline.isRecording, voiceStatus, audioPipeline]);
-
-    const handleMicClick = () => {
-        // If AI is speaking/thinking, STOP it immediately.
-        if (voiceStatus === 'speaking' || voiceStatus === 'thinking' || window.speechSynthesis.speaking) {
-            if (abortControllerRef.current) {
-                abortControllerRef.current.abort();
-                abortControllerRef.current = null;
-            }
-            stopSpeaking();
-            return;
-        }
-
-        if (voiceStatus === 'listening' || audioPipeline.isRecording) {
-            audioPipeline.stopRecording();
-            return;
-        }
-
-        // Start recording via pipeline
-        if (voiceStatus === 'idle') {
-            audioPipeline.startRecording().then(() => {
-                setVoiceStatus('listening');
-            }).catch((err) => {
-                console.error('Mic access denied:', err);
-                alert('Microphone access is required for voice communication.');
-            });
-        }
-    };
-
-    const playAudioResponse = (url: string, onEnded?: () => void) => {
-        console.log(`[AUDIO] Playing: ${url}`);
-
-        if (audioRef.current) {
-            audioRef.current.pause();
-            audioRef.current = null;
-        }
-
-        const audio = new Audio(url);
-        audioRef.current = audio;
-
-        audio.onplay = () => {
-            console.log("[AUDIO] Playback started");
-            setVoiceStatus('speaking'); // Visual "Speaking" state
-        };
-        audio.onended = () => {
-            console.log("[AUDIO] Playback ended");
-            audioRef.current = null;
-            if (onEnded) onEnded(); else setVoiceStatus('idle');
-        };
-        audio.onerror = (e) => {
-            console.error("[AUDIO] Playback error:", e);
-            audioRef.current = null;
-            if (onEnded) onEnded(); else setVoiceStatus('idle');
-        };
-
-        // Play
-        audio.play().catch(err => {
-            console.error("[AUDIO] Play failed:", err);
-            audioRef.current = null;
-            if (onEnded) onEnded(); else setVoiceStatus('idle');
-        });
-    };
-
-    const playNextAudioInQueue = () => {
-        if (audioQueueRef.current.length === 0) {
-            setVoiceStatus('idle');
-            return;
-        }
-        const nextUrl = audioQueueRef.current.shift();
-        if (nextUrl) {
-            playAudioResponse(nextUrl, playNextAudioInQueue);
-        }
-    };
-
-    const fetchAndPlayTTS = async (text: string, overrideLanguage?: string) => {
-        setVoiceStatus('thinking');
-
-        if (!abortControllerRef.current) {
-            abortControllerRef.current = new AbortController();
-        }
-        const signal = abortControllerRef.current.signal;
-
-        const ttsLang = overrideLanguage || language;
-
-        try {
-            const ttsResponse = await fetch('/api/chat/tts', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) },
-                body: JSON.stringify({
-                    text: text,
-                    language: ttsLang
-                }),
-                signal: signal
-            });
-
-            if (ttsResponse.ok) {
-                const ttsData = await ttsResponse.json();
-                if (ttsData.audio_url) {
-                    playAudioResponse(ttsData.audio_url);
-                } else {
-                    setVoiceStatus('idle');
-                }
-            } else {
-                setVoiceStatus('idle');
-            }
-        } catch (error: any) {
-            if (error.name === 'AbortError') {
-                console.log('TTS fetch aborted by user');
-                return;
-            }
-            console.error("TTS fetch error:", error);
-            setVoiceStatus('idle');
-        }
-    };
-
-    const deleteMessage = async (id: string) => {
-        try {
-            const res = await fetch(`/api/chat/history/${id}`, {
-                method: 'DELETE',
-                headers: token ? { 'Authorization': `Bearer ${token}` } : undefined
-            });
-
-            if (res.status === 401) {
-                handleLogout();
-                return;
-            }
-
-            setMessages(prev => prev.filter(m => m.id !== id));
-        } catch (err) {
-            console.error("Failed to delete message", err);
-        }
-    };
-
-    const clearHistory = async () => {
-        try {
-            const res = await fetch(`/api/chat/history`, {
-                method: 'DELETE',
-                headers: token ? { 'Authorization': `Bearer ${token}` } : undefined
-            });
-
-            if (res.status === 401) {
-                handleLogout();
-                return;
-            }
-
-            setMessages([]);
-        } catch (err) {
-            console.error("Failed to clear history", err);
-        }
-    };
-
-    const handleChat = async (text: string | null, audioBlob: Blob | null = null) => {
-        setVoiceStatus('thinking');
-
-        if (abortControllerRef.current) {
-            abortControllerRef.current.abort();
-        }
-        abortControllerRef.current = new AbortController();
-        const signal = abortControllerRef.current.signal;
-
-        try {
-            const formData = new FormData();
-            if (audioBlob) {
-                formData.append('audio', audioBlob, 'input.webm');
-            } else if (text) {
-                formData.append('message', text);
-            }
-
-            formData.append('language', language);
-            formData.append('page_context', activeTab);
-            // Optimization: Don't request audio yet. Get text first.
-            formData.append('voice_enabled', 'false');
-
-            const headers: HeadersInit = {};
-            if (token) {
-                headers['Authorization'] = `Bearer ${token}`;
-            }
-
-            const response = await fetch('/api/chat/stream', {
-                method: 'POST',
-                headers: token ? { 'Authorization': `Bearer ${token}` } : undefined,
-                body: formData,
-                signal: signal
-            });
-
-            if (response.status === 401) {
-                handleLogout();
-                return;
-            }
-
-            if (!response.ok) throw new Error("Server error");
-
-            const userMsg: Message = {
-                id: Date.now().toString(),
-                text: text || "Voice Input",
-                sender: 'user',
-                timestamp: new Date()
-            };
-
-            const aiMsg: Message = {
-                id: (Date.now() + 1).toString(),
-                text: "",
-                sender: 'ai',
-                timestamp: new Date()
-            };
-
-            setMessages(prev => [...prev, userMsg, aiMsg]);
-
-            const reader = response.body?.getReader();
-            const decoder = new TextDecoder();
-            let fullAiResponse = "";
-            let isFirstChunk = true;
-
-            if (reader) {
-                while (true) {
-                    const { value, done } = await reader.read();
-                    if (done) break;
-                    
-                    const chunkStr = decoder.decode(value, { stream: true });
-                    const lines = chunkStr.split('\\n');
-                    
-                    for (const line of lines) {
-                        if (line.startsWith('data: ')) {
-                            try {
-                                const data = JSON.parse(line.substring(6));
-                                if (data.type === 'metadata') {
-                                    if (isFirstChunk) {
-                                        setMessages(prev => prev.map(m => m.id === userMsg.id ? { ...m, text: data.user_text || text || "Voice Input" } : m));
-                                        isFirstChunk = false;
-                                        if (data.detected_language && data.detected_language !== language) {
-                                            // UI language shouldn't automatically switch just because the user spoke in another language.
-                                        }
-                                    }
-                                } else if (data.type === 'text') {
-                                    fullAiResponse += data.text;
-                                    setMessages(prev => prev.map(m => m.id === aiMsg.id ? { ...m, text: fullAiResponse } : m));
-                                } else if (data.type === 'audio') {
-                                    const audioUrl = `data:audio/mp3;base64,${data.audio_base64}`;
-                                    audioQueueRef.current.push(audioUrl);
-                                    if (!audioRef.current || audioRef.current.ended || audioRef.current.paused) {
-                                        playNextAudioInQueue();
-                                    }
-                                } else if (data.type === 'complete') {
-                                    if (audioQueueRef.current.length === 0 && !audioRef.current) {
-                                        setVoiceStatus('idle');
-                                    }
-                                }
-                            } catch(e) {}
-                        }
-                    }
-                }
-            }
-
-        } catch (error: any) {
-            if (error.name === 'AbortError') {
-                console.log('Chat fetch aborted by user');
-                return;
-            }
-            console.error("Chat Error:", error);
-            setVoiceStatus('idle');
-            setConnectionError(true);
-            setTimeout(() => setConnectionError(false), 5000);
-        }
-    };
 
     if (!token) {
         return (
-            <div className="flex h-screen w-full bg-background items-center justify-center relative overflow-hidden">
-                <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-500/10 rounded-full blur-[100px] pointer-events-none" />
-                <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-purple-500/10 rounded-full blur-[100px] pointer-events-none" />
+            <div className="flex h-screen w-full bg-[#0D1F16] bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-[#1A4731] via-[#0D1F16] to-[#050B08] items-center justify-center relative overflow-hidden">
+                <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#F5A623]/10 rounded-full blur-[100px] pointer-events-none" />
+                <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-[#4A90D9]/10 rounded-full blur-[100px] pointer-events-none" />
                 <Auth onLogin={handleLogin} />
             </div>
         );
@@ -634,12 +306,19 @@ function App() {
 
     if (token && onboardingCompleted === false) {
         return (
-            <Onboarding 
-                token={token} 
-                onComplete={(data) => {
+            <OnboardingFlow 
+                onComplete={() => {
                     setOnboardingCompleted(true);
-                    setLanguage(data.language);
-                    setUserLocation(data);
+                    fetchProfile().then(prof => {
+                        if (prof) {
+                            setLanguage(prof.language || 'en');
+                            setUserLocation({
+                                state: prof.state || '',
+                                district: prof.district || '',
+                                mandal: prof.mandal || ''
+                            });
+                        }
+                    });
                 }} 
             />
         );
@@ -663,6 +342,10 @@ function App() {
                     <div className="flex items-center gap-3 pointer-events-none">
                         <img src="/logo.png" alt="Logo" className="w-10 h-10 rounded-full" />
                         <div className="text-xl font-semibold text-white/50">EventHorizon <span className="text-gray-500 font-normal">AI</span></div>
+                    </div>
+                    <div className="flex items-center gap-4">
+                        <WakeWord />
+                        <AlertBell />
                     </div>
                 </header>
 
@@ -692,20 +375,13 @@ function App() {
                         onBack={() => {}}
                         currentLanguage={language}
                         labels={currentUI}
-                        onMoreDetails={(query) => {
+                        onMoreDetails={() => {
                             setActiveTab('risk');
-                            // Small timeout to allow tab switch before triggering chat
-                            setTimeout(() => {
-                                handleChat(`Tell me more details about ${query} market rates, including potential future trends and advice.`);
-                            }, 100);
                         }}
                     />
                 ) : (
                     <Settings
                         onBack={() => {}}
-                        messages={messages}
-                        onDeleteMessage={deleteMessage}
-                        onClearHistory={clearHistory}
                         currentLanguage={language}
                         onLanguageChange={handleLanguageChange}
                         username={username}
@@ -734,24 +410,10 @@ function App() {
                     />
                 )}
 
-                <FloatingAssistant onClick={() => setIsAssistantOpen(true)} isOpen={isAssistantOpen} />
-                <AssistantDrawer 
-                    isOpen={isAssistantOpen}
-                    onClose={() => setIsAssistantOpen(false)}
-                    messages={messages}
-                    voiceStatus={voiceStatus}
-                    onMicClick={handleMicClick}
-                    onSubmitText={(text) => handleChat(text)}
-                    networkQuality={audioPipeline.networkQuality}
-                    streamState={audioPipeline.streamState}
-                    bufferedChunks={audioPipeline.bufferedChunks}
-                    waveformLevel={audioPipeline.waveformLevel}
-                    recordingDuration={audioPipeline.recordingDuration}
-                    isRecording={audioPipeline.isRecording}
-                    onReadAloud={fetchAndPlayTTS}
-                    currentUI={currentUI}
-                    pageContextText={activeTab === 'risk' ? 'Risk Dashboard' : activeTab === 'agriculture' ? 'Market Intelligence' : activeTab === 'scanner' ? 'Plant Doctor' : 'Settings'}
-                />
+                <PageContextBanner />
+
+                <FloatingAssistant />
+                <AssistantDrawer />
 
                 <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-primary/10 rounded-full blur-[100px] pointer-events-none" />
                 <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-secondary/10 rounded-full blur-[100px] pointer-events-none" />

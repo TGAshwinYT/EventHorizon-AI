@@ -90,11 +90,6 @@ class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: str
 
-class ImportDataRequest(BaseModel):
-    username: str
-    language: str | None = None
-    history: list[dict]
-
 @router.get('/profile')
 def get_profile(authorization: str = Header(None)):
     if not authorization or not authorization.startswith("Bearer "):
@@ -210,60 +205,6 @@ def change_password(data: ChangePasswordRequest, authorization: str = Header(Non
         print(f"[PASSWORD CHANGE ERROR] {e}")
         raise HTTPException(status_code=500, detail="Failed to change password")
         
-@router.post('/import')
-def import_data(data: ImportDataRequest, authorization: str = Header(None)):
-    if not authorization or not authorization.startswith("Bearer "):
-         raise HTTPException(status_code=401, detail="Unauthorized")
-    try:
-        from app.auth import decode_access_token
-        from app.models import ChatHistory
-        import datetime
-        token = authorization.split(" ")[1]
-        payload = decode_access_token(token)
-        if not payload:
-            raise HTTPException(status_code=401, detail="Invalid token")
-        username = payload.get("sub")
-        db: Session = AuthSessionLocal()
-        user = db.query(User).filter(User.username == username).first()
-        if not user:
-            db.close()
-            raise HTTPException(status_code=404, detail="User not found")
-            
-        imported_count = 0
-        for msg in data.history:
-            # Simple deduplication check based on text and timestamp matching ignoring ms
-            msg_text = msg.get("text")
-            msg_sender = msg.get("sender")
-            if not msg_text or not msg_sender: continue
-            
-            # Check if exists
-            exists = db.query(ChatHistory).filter(
-                ChatHistory.user_id == user.id,
-                ChatHistory.message == msg_text,
-                ChatHistory.sender == msg_sender
-            ).first()
-            
-            if not exists:
-                try: # try parsing time, if fail just use utcnow
-                    ts_str = msg.get("timestamp")
-                    if ts_str and isinstance(ts_str, str):
-                        time_val = datetime.datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-                    else:
-                        time_val = datetime.datetime.utcnow()
-                except:
-                    time_val = datetime.datetime.utcnow()
-                    
-                new_msg = ChatHistory(user_id=user.id, message=msg_text, sender=msg_sender, timestamp=time_val)
-                db.add(new_msg)
-                imported_count += 1
-                
-        db.commit()
-        db.close()
-        return {"message": f"Successfully imported {imported_count} messages."}
-    except Exception as e:
-        print(f"[IMPORT DATA ERROR] {e}")
-        raise HTTPException(status_code=500, detail="Failed to import data")
-
 @router.delete('/profile')
 def delete_profile(authorization: str = Header(None)):
     if not authorization or not authorization.startswith("Bearer "):
@@ -284,11 +225,6 @@ def delete_profile(authorization: str = Header(None)):
             db.close()
             raise HTTPException(status_code=404, detail="User not found")
             
-        # Delete user (Cascading delete should handle history if configured, 
-        # else we explicitly delete history first to be safe)
-        from app.models import ChatHistory
-        db.query(ChatHistory).filter(ChatHistory.user_id == user.id).delete()
-        
         db.delete(user)
         db.commit()
         db.close()

@@ -6,7 +6,6 @@ dest_dir = r"d:\Library\Ashwin\Offical\TamilGaming\AI\frontend\src\mobile\compon
 
 files_to_copy = [
     "MarketDashboard.tsx",
-    "SkillsDashboard.tsx",
     "VisualScanner.tsx",
     "Settings.tsx"
 ]

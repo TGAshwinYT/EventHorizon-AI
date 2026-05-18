@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Search, TrendingUp, ArrowLeft, Loader2, BookOpen, Truck, Landmark, BarChart3, Volume2, StopCircle, Youtube, User, ExternalLink } from 'lucide-react';
-import MobileMandiInterface from './MobileMandiInterface';
-import MobileForecastingInterface from './MobileForecastingInterface';
+import MandiInterface from '../../components/MandiInterface';
+import ForecastingInterface from '../../components/ForecastingInterface';
 
 interface MarketDashboardProps {
     onBack: () => void;
@@ -110,31 +110,31 @@ const MobileMarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashbo
     };
 
     const renderMenu = () => (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-fade-in pb-8">
-            <div onClick={() => setView('rates')} className="glass-panel p-4 rounded-2xl cursor-pointer hover:bg-white/10 transition-all border-emerald-500/20 group">
-                <TrendingUp className="w-8 h-8 text-emerald-400 mb-3 group-hover:scale-110 transition-transform" />
-                <h3 className="text-lg font-bold mb-1">{labels.rates}</h3>
-                <p className="text-gray-400 text-xs leading-tight">{labels.ratesDesc || "Check daily market prices for crops in your mandi."}</p>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-fade-in pb-8">
+            <div onClick={() => setView('rates')} className="glass-panel p-6 rounded-3xl cursor-pointer hover:bg-white/10 transition-all border-emerald-500/20 group">
+                <TrendingUp className="w-10 h-10 text-emerald-400 mb-4 group-hover:scale-110 transition-transform" />
+                <h3 className="text-xl font-bold mb-2">{labels.rates}</h3>
+                <p className="text-gray-400 text-sm">{labels.ratesDesc || "Check daily market prices for crops in your mandi."}</p>
             </div>
 
 
 
-            <div onClick={() => setView('schemes')} className="glass-panel p-4 rounded-2xl cursor-pointer hover:bg-white/10 transition-all border-amber-500/20 group">
-                <Landmark className="w-8 h-8 text-amber-400 mb-3 group-hover:scale-110 transition-transform" />
-                <h3 className="text-lg font-bold mb-1">{labels.schemes}</h3>
-                <p className="text-gray-400 text-xs leading-tight">{labels.schemesDesc || "Central and State schemes for subsidies and loans."}</p>
+            <div onClick={() => setView('schemes')} className="glass-panel p-6 rounded-3xl cursor-pointer hover:bg-white/10 transition-all border-amber-500/20 group">
+                <Landmark className="w-10 h-10 text-amber-400 mb-4 group-hover:scale-110 transition-transform" />
+                <h3 className="text-xl font-bold mb-2">{labels.schemes}</h3>
+                <p className="text-gray-400 text-sm">{labels.schemesDesc || "Central and State schemes for subsidies and loans."}</p>
             </div>
 
-            <div onClick={() => setView('marketing')} className="glass-panel p-4 rounded-2xl cursor-pointer hover:bg-white/10 transition-all border-pink-500/20 group">
-                <BarChart3 className="w-8 h-8 text-pink-400 mb-3 group-hover:scale-110 transition-transform" />
-                <h3 className="text-lg font-bold mb-1">{labels.marketing}</h3>
-                <p className="text-gray-400 text-xs leading-tight">{labels.marketingDesc || "Success stories, bloggers, and selling strategies."}</p>
+            <div onClick={() => setView('marketing')} className="glass-panel p-6 rounded-3xl cursor-pointer hover:bg-white/10 transition-all border-pink-500/20 group">
+                <BarChart3 className="w-10 h-10 text-pink-400 mb-4 group-hover:scale-110 transition-transform" />
+                <h3 className="text-xl font-bold mb-2">{labels.marketing}</h3>
+                <p className="text-gray-400 text-sm">{labels.marketingDesc || "Success stories, bloggers, and selling strategies."}</p>
             </div>
 
-            <div onClick={() => setView('forecasting')} className="glass-panel p-4 rounded-2xl cursor-pointer hover:bg-white/10 transition-all border-purple-500/20 group">
-                <BookOpen className="w-8 h-8 text-purple-400 mb-3 group-hover:scale-110 transition-transform" />
-                <h3 className="text-lg font-bold mb-1">{labels.forecasting || "Forecasting"}</h3>
-                <p className="text-gray-400 text-xs leading-tight">{labels.forecastingDesc || "7-day AI predictions for crop market prices."}</p>
+            <div onClick={() => setView('forecasting')} className="glass-panel p-6 rounded-3xl cursor-pointer hover:bg-white/10 transition-all border-purple-500/20 group">
+                <BookOpen className="w-10 h-10 text-purple-400 mb-4 group-hover:scale-110 transition-transform" />
+                <h3 className="text-xl font-bold mb-2">{labels.forecasting || "Forecasting"}</h3>
+                <p className="text-gray-400 text-sm">{labels.forecastingDesc || "7-day AI predictions for crop market prices."}</p>
             </div>
         </div>
     );
@@ -984,7 +984,7 @@ const MobileMarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashbo
                                 <img src={selectedVehicle.image_url} alt={selectedVehicle.name} className="w-full h-full object-cover" />
                                 <div className="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent"></div>
                                 <div className="absolute bottom-0 left-0 w-full p-8">
-                                    <h2 className="text-2xl font-bold text-white mb-2">{selectedVehicle.name}</h2>
+                                    <h2 className="text-3xl font-bold text-white mb-2">{selectedVehicle.name}</h2>
                                     <div className="flex items-center gap-4">
                                         <span className="bg-emerald-500 text-black font-bold px-4 py-1.5 rounded-full">{selectedVehicle.price}</span>
                                         <span className="bg-blue-500/30 text-blue-200 border border-blue-500/30 px-3 py-1.5 rounded-full text-sm">{selectedVehicle.type}</span>
@@ -1111,39 +1111,45 @@ const MobileMarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashbo
     );
 
     return (
-        <div className="flex flex-col w-full h-full animate-slide-up">
-            <header className="flex items-center gap-4 mb-4 shrink-0">
-                <button onClick={() => {
-                    if (view === 'vehicle_details') {
-                        setView('vehicles');
-                    } else if (view === 'menu') {
-                        onBack();
-                    } else {
-                        setView('menu');
-                    }
-                }} className="p-2 rounded-full hover:bg-white/10 text-gray-400 transition-colors">
-                    <ArrowLeft className="w-6 h-6" />
+        <div className="flex flex-col w-full w-full h-full px-6 md:px-10 pt-20 pb-8 animate-slide-up">
+            {/* Header matching RiskDashboard premium layout */}
+            <header className="flex items-center gap-4 mb-6 shrink-0 z-10">
+                <button 
+                    onClick={() => {
+                        if (view === 'vehicle_details') {
+                            setView('vehicles');
+                        } else if (view === 'menu') {
+                            onBack();
+                        } else {
+                            setView('menu');
+                        }
+                    }} 
+                    className="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-all text-gray-400 hover:text-white"
+                >
+                    <ArrowLeft className="w-5 h-5" />
                 </button>
-                <h2 className="text-2xl font-bold truncate pr-4">
-                    {view === 'menu' ? (
-                        <>{labels.marketHeader?.split(' ')[0]} <span className="text-emerald-400">{labels.marketHeader?.split(' ').slice(1).join(' ')}</span></>
-                    ) : (
-                        <span className="capitalize">{labels[view] || view.replace('-', ' ')}</span>
-                    )}
-                </h2>
+                <div>
+                    <h2 className="text-3xl font-bold bg-gradient-to-r from-emerald-400 to-teal-500 bg-clip-text text-transparent">
+                        {view === 'menu' ? (
+                            <>{labels.marketHeader.split(' ')[0]} <span className="text-emerald-400">{labels.marketHeader.split(' ').slice(1).join(' ')}</span></>
+                        ) : (
+                            <span className="capitalize">{labels[view] || view.replace('-', ' ')}</span>
+                        )}
+                    </h2>
+                </div>
             </header>
 
-            <div className="flex-1 overflow-hidden px-4">
+            <div className="flex-1 overflow-hidden">
                 {view === 'menu' && <div className="h-full overflow-y-auto custom-scrollbar">{renderMenu()}</div>}
-                {view === 'rates' && <MobileMandiInterface currentLanguage={currentLanguage} />}
+                {view === 'rates' && <MandiInterface currentLanguage={currentLanguage} />}
 
 
                 {view === 'vehicles' && renderVehicles()}
                 {view === 'vehicle_details' && renderVehicleDetails()}
                 {view === 'schemes' && renderSchemes()}
                 {view === 'forecasting' && (
-                    <div className="flex flex-col h-full animate-fade-in md:p-6 overflow-y-auto min-w-0">
-                        <MobileForecastingInterface labels={labels} />
+                    <div className="flex flex-col h-full animate-fade-in md:p-6 overflow-y-auto custom-scrollbar min-w-0">
+                        <ForecastingInterface currentLanguage={currentLanguage} labels={labels} />
                     </div>
                 )}
                 {view === 'marketing' && renderMarketing()}

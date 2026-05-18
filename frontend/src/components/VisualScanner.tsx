@@ -244,16 +244,21 @@ const VisualScanner = ({ language, token, onBack }: VisualScannerProps) => {
   const btnSmall = "flex items-center justify-center gap-2 min-h-[56px] text-lg font-semibold rounded-xl transition-all duration-200 active:scale-95 px-6 py-3";
 
   return (
-    <div className="flex flex-col w-full max-w-6xl mx-auto h-[85vh] animate-slide-up my-auto relative text-white">
-      {/* Header matching Market Intelligence layout */}
-      <header className="flex items-center gap-4 mb-6 shrink-0 px-4 md:px-0 z-10">
-        <button onClick={state === 'selection' ? onBack : reset} className="p-2 rounded-full hover:bg-white/10 text-gray-400 transition-colors">
-          <ArrowLeft className="w-6 h-6" />
+    <div className="flex flex-col w-full max-w-6xl mx-auto h-full px-6 md:px-10 pt-20 pb-8 animate-slide-up relative text-white">
+      {/* Header matching RiskDashboard premium layout */}
+      <header className="flex items-center gap-4 mb-6 shrink-0 z-10">
+        <button 
+          onClick={state === 'selection' ? onBack : reset} 
+          className="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-all text-gray-400 hover:text-white"
+        >
+          <ArrowLeft className="w-5 h-5" />
         </button>
-        <h2 className="text-3xl font-bold flex items-center gap-3">
-          <Leaf className="w-8 h-8 text-emerald-400" />
-          {L.title}
-        </h2>
+        <div>
+          <h2 className="text-3xl font-bold flex items-center gap-3 bg-gradient-to-r from-emerald-400 to-teal-500 bg-clip-text text-transparent">
+            <Leaf className="w-8 h-8 text-emerald-400 shrink-0" />
+            <span>{L.title}</span>
+          </h2>
+        </div>
       </header>
 
       {/* ── Selection State ── */}

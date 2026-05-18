@@ -19,23 +19,12 @@ class User(AuthBase):
     state = Column(String, nullable=True)
     district = Column(String, nullable=True)
     mandal = Column(String, nullable=True)
+    crops = Column(Text, nullable=True) # Stored as comma-separated or JSON string
+    alerts_enabled = Column(Integer, default=1) # 0=False, 1=True
     onboarding_completed = Column(Integer, default=0) # Using Integer as Boolean for SQLite compatibility (0=False, 1=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-
-    chats = relationship("ChatHistory", back_populates="owner", cascade="all, delete")
-
-class ChatHistory(AuthBase):
-    __tablename__ = "chat_history"
-
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
-    message = Column(Text)
-    sender = Column(String) # 'user' or 'ai'
-    timestamp = Column(DateTime, default=datetime.utcnow)
-
-    owner = relationship("User", back_populates="chats")
 
 class MandiRate(MandiBase):
     __tablename__ = "mandi_prices"

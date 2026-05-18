@@ -15,7 +15,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from app.routers import chat, market, auth, weather, voice_pipeline, scanner, harvestiq, satellite
+from app.routers import market, auth, weather, scanner, harvestiq, satellite, assistant, research
 from app.database import auth_engine, mandi_engine, AuthBase, MandiBase
 
 ml_models = {}
@@ -55,26 +55,6 @@ def init_db():
 async def lifespan(app: FastAPI):
     print("APPLICATION STARTING UP...")
     app.state.is_ready = False
-    
-    # Whisper is now lazy-loaded by riva_asr_service (Tier 3 fallback)
-    # Only pre-load if no NVIDIA/Groq API keys are configured
-    nvidia_key = os.getenv("NVIDIA_API_KEY", "")
-    groq_key = os.getenv("GROQ_API_KEY", "")
-    if not nvidia_key and not groq_key:
-        print("[-] No cloud ASR keys found. Pre-loading local Whisper-tiny...")
-        try:
-            import whisper
-            ml_models["whisper_tiny"] = whisper.load_model("tiny")
-        except ImportError:
-            print("[!] openai-whisper not installed. Local Whisper fallback unavailable.")
-    else:
-        print("[-] Cloud ASR available. Skipping Whisper pre-load (lazy fallback).")
-    
-    # Log NVIDIA NIM status
-    if nvidia_key:
-        print(f"[*] NVIDIA NIM: ENABLED (key: {nvidia_key[:12]}...)")
-    else:
-        print("[!] NVIDIA NIM: DISABLED (set NVIDIA_API_KEY in .env for Riva ASR/TTS)")
     
     # 1. Start Scheduler
     from app.services.scheduler import start_scheduler
@@ -124,12 +104,9 @@ app.add_middleware(
 )
 
 # Register Routers
-app.include_router(chat.router, prefix='/api/chat', tags=["Chat"])
 app.include_router(market.router, prefix='/api/market', tags=["Market"])
 app.include_router(auth.router, prefix='/api/auth', tags=["Auth"])
 app.include_router(weather.router, prefix='/api/weather', tags=["Weather"])
-# Real-time voice pipeline (WebSocket ASR -> LLM -> TTS)
-app.include_router(voice_pipeline.router, tags=["Voice Pipeline"])
 # Visual Diagnostic Scanner (crop disease diagnosis from images)
 app.include_router(scanner.router, prefix='/api/scanner', tags=["Scanner"])
 
@@ -137,6 +114,10 @@ app.include_router(scanner.router, prefix='/api/scanner', tags=["Scanner"])
 app.include_router(harvestiq.router)
 # Satellite NDVI — NASA MODIS vegetation health
 app.include_router(satellite.router, prefix='/api/satellite', tags=["Satellite"])
+# Assistant — Voice agricultural advisor
+app.include_router(assistant.router, prefix='/api/assistant', tags=["Assistant"])
+# Research — Agricultural & Product Research Engine
+app.include_router(research.router, prefix='/api/assistant', tags=["Research"])
 
 @app.get('/')
 async def root():

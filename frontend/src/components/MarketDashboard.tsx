@@ -1111,26 +1111,32 @@ const MarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashboardPro
     );
 
     return (
-        <div className="flex flex-col w-full max-w-6xl mx-auto h-[85vh] animate-slide-up my-auto">
-            <header className="flex items-center gap-4 mb-6 shrink-0">
-                <button onClick={() => {
-                    if (view === 'vehicle_details') {
-                        setView('vehicles');
-                    } else if (view === 'menu') {
-                        onBack();
-                    } else {
-                        setView('menu');
-                    }
-                }} className="p-2 rounded-full hover:bg-white/10 text-gray-400 transition-colors">
-                    <ArrowLeft className="w-6 h-6" />
+        <div className="flex flex-col w-full max-w-6xl mx-auto h-full px-6 md:px-10 pt-20 pb-8 animate-slide-up">
+            {/* Header matching RiskDashboard premium layout */}
+            <header className="flex items-center gap-4 mb-6 shrink-0 z-10">
+                <button 
+                    onClick={() => {
+                        if (view === 'vehicle_details') {
+                            setView('vehicles');
+                        } else if (view === 'menu') {
+                            onBack();
+                        } else {
+                            setView('menu');
+                        }
+                    }} 
+                    className="p-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-all text-gray-400 hover:text-white"
+                >
+                    <ArrowLeft className="w-5 h-5" />
                 </button>
-                <h2 className="text-3xl font-bold">
-                    {view === 'menu' ? (
-                        <>{labels.marketHeader.split(' ')[0]} <span className="text-emerald-400">{labels.marketHeader.split(' ').slice(1).join(' ')}</span></>
-                    ) : (
-                        <span className="capitalize">{labels[view] || view.replace('-', ' ')}</span>
-                    )}
-                </h2>
+                <div>
+                    <h2 className="text-3xl font-bold bg-gradient-to-r from-emerald-400 to-teal-500 bg-clip-text text-transparent">
+                        {view === 'menu' ? (
+                            <>{labels.marketHeader.split(' ')[0]} <span className="text-emerald-400">{labels.marketHeader.split(' ').slice(1).join(' ')}</span></>
+                        ) : (
+                            <span className="capitalize">{labels[view] || view.replace('-', ' ')}</span>
+                        )}
+                    </h2>
+                </div>
             </header>
 
             <div className="flex-1 overflow-hidden">
@@ -1142,7 +1148,7 @@ const MarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashboardPro
                 {view === 'vehicle_details' && renderVehicleDetails()}
                 {view === 'schemes' && renderSchemes()}
                 {view === 'forecasting' && (
-                    <div className="flex flex-col h-full animate-fade-in md:p-6 overflow-y-auto min-w-0">
+                    <div className="flex flex-col h-full animate-fade-in md:p-6 overflow-y-auto custom-scrollbar min-w-0">
                         <ForecastingInterface currentLanguage={currentLanguage} labels={labels} />
                     </div>
                 )}

@@ -1,95 +1,130 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useUserStore } from '../store/userStore';
 
-// Using Web Speech API for Wake Word Detection (if available)
-const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+export function useWakeWord() {
+  const recognitionRef = useRef<any>(null);
+  const [isWakeWordActive, setIsWakeWordActive] = useState(false);
+  const setIsListening = useUserStore((state) => state.setIsListening);
+  const isListening = useUserStore((state) => state.isListening);
+  const activeLanguage = useUserStore((state) => state.activeLanguage);
 
-export function useWakeWord(onWakeWordDetected: () => void) {
-    const [isListeningForWakeWord, setIsListeningForWakeWord] = useState(false);
-    const [hasPermission, setHasPermission] = useState<boolean | null>(null);
-    const recognitionRef = useRef<any>(null);
+  useEffect(() => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      console.warn('[WAKE WORD] SpeechRecognition is not supported in this browser.');
+      return;
+    }
 
-    const checkPermission = async () => {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            stream.getTracks().forEach(track => track.stop());
-            setHasPermission(true);
-            return true;
-        } catch (err) {
-            console.error("Microphone permission denied", err);
-            setHasPermission(false);
-            return false;
+    const rec = new SpeechRecognition();
+    rec.continuous = true;
+    rec.interimResults = true;
+    
+    // Dynamically map active UI language to native SpeechRecognition language model
+    const langMap: Record<string, string> = {
+      en: 'en-IN',
+      ta: 'ta-IN',
+      hi: 'hi-IN',
+      te: 'te-IN',
+      kn: 'kn-IN',
+      ml: 'ml-IN',
+      bn: 'bn-IN',
+      mr: 'mr-IN',
+      gu: 'gu-IN'
+    };
+    rec.lang = langMap[activeLanguage] || 'en-IN';
+
+    rec.onresult = (event: any) => {
+      const resultIndex = event.resultIndex;
+      const transcript = event.results[resultIndex][0].transcript.toLowerCase();
+      
+      // Highly robust multi-lingual and phonetic keyword matching
+      const matchWords = [
+        'horizon', 'orizon', 'ryzen', 'harizan', 'harison', 'herizen', 'horisen', 'horison', 'harisen',
+        'ஹொரைசன்', 'ஹே ஹொரைசன்', 'ஹோரைசன்', 'ஹாரைசன்',
+        'होराइज़न', 'होराइजन', 'होरिजोन', 'हे होराइज़न',
+        'హోరిజోన్',
+        'ಹೊರೈಜನ್',
+        'ഹൊറൈസൺ',
+        'হরাইজন',
+        'होरायझन',
+        'હોરાઇઝન'
+      ];
+      
+      const isWakeWordMatched = matchWords.some(word => transcript.includes(word));
+      
+      if (isWakeWordMatched) {
+        console.log('[WAKE WORD TRIGGERED] Detected wake word with text:', transcript);
+        setIsListening(true);
+        
+        // Dispatch wake up event
+        window.dispatchEvent(new CustomEvent('eventhorizon_wakeup'));
+        
+        // Haptic feedback for mobile devices
+        if (navigator.vibrate) {
+          navigator.vibrate([100, 50, 100]);
         }
+      }
     };
 
-    const startListening = useCallback(async () => {
-        if (!SpeechRecognition) {
-            console.warn("Speech Recognition API not supported in this browser.");
-            return;
-        }
+    rec.onerror = (event: any) => {
+      console.warn('[WAKE WORD ERROR]', event.error);
+      if (event.error === 'not-allowed') {
+        setIsWakeWordActive(false);
+      }
+    };
 
-        const perm = await checkPermission();
-        if (!perm) return;
-
-        if (!recognitionRef.current) {
-            const recognition = new SpeechRecognition();
-            recognition.continuous = true;
-            recognition.interimResults = true;
-            recognition.lang = 'en-US'; // We listen for "Hey Horizon" in English mostly
-
-            recognition.onresult = (event: any) => {
-                const current = event.resultIndex;
-                const transcript = event.results[current][0].transcript.toLowerCase();
-                
-                if (transcript.includes('hey horizon') || transcript.includes('horizon')) {
-                    console.log("Wake word detected!");
-                    onWakeWordDetected();
-                    // Optional: we can stop recognition here and restart it later
-                    recognition.stop();
-                }
-            };
-
-            recognition.onend = () => {
-                // Auto-restart if we are supposed to be listening
-                if (isListeningForWakeWord) {
-                    try {
-                        recognition.start();
-                    } catch (e) {
-                        console.error("Failed to restart speech recognition", e);
-                    }
-                }
-            };
-
-            recognitionRef.current = recognition;
-        }
-
+    const safeStart = () => {
+      if (recognitionRef.current && isWakeWordActive && !isListening) {
         try {
-            recognitionRef.current.start();
-            setIsListeningForWakeWord(true);
+          recognitionRef.current.start();
         } catch (e) {
-            // Already started
-            setIsListeningForWakeWord(true);
+          // Already running or starting
         }
-    }, [isListeningForWakeWord, onWakeWordDetected]);
-
-    const stopListening = useCallback(() => {
-        if (recognitionRef.current) {
-            recognitionRef.current.stop();
-        }
-        setIsListeningForWakeWord(false);
-    }, []);
-
-    useEffect(() => {
-        return () => {
-            if (recognitionRef.current) {
-                recognitionRef.current.stop();
-            }
-        };
-    }, []);
-
-    return {
-        isListeningForWakeWord,
-        hasPermission,
-        startListening,
-        stopListening
+      }
     };
+
+    rec.onend = () => {
+      // Auto restart background wake word recognition with a safe throttle
+      if (isWakeWordActive && !isListening) {
+        setTimeout(() => {
+          safeStart();
+        }, 300);
+      }
+    };
+
+    recognitionRef.current = rec;
+
+    if (isWakeWordActive && !isListening) {
+      try {
+        recognitionRef.current.start();
+      } catch (e) {
+        // Already running
+      }
+    }
+
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.abort();
+      }
+    };
+  }, [isWakeWordActive, isListening, setIsListening, activeLanguage]);
+
+  const startWakeWordListener = () => {
+    setIsWakeWordActive(true);
+    console.log('[WAKE WORD] continuous wake word listener started.');
+  };
+
+  const stopWakeWordListener = () => {
+    setIsWakeWordActive(false);
+    if (recognitionRef.current) {
+      recognitionRef.current.abort();
+    }
+    console.log('[WAKE WORD] continuous wake word listener stopped.');
+  };
+
+  return {
+    isWakeWordActive,
+    startWakeWordListener,
+    stopWakeWordListener
+  };
 }
