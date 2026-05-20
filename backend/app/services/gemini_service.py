@@ -14,9 +14,10 @@ if GEMINI_API_KEY:
     GEMINI_API_KEY = GEMINI_API_KEY.strip()
 
 # Primary Brain Model: Gemini 3.1 Flash Lite (Preview)
-GEMINI_BRAIN_MODEL = os.getenv("GEMINI_BRAIN_MODEL", "gemini-3.1-flash-lite-preview")
+GEMINI_BRAIN_MODEL = os.getenv("GEMINI_BRAIN_MODEL", "gemini-3.5-flash-lite")
 # Fallback models in case of limits or preview quota: prioritizing Gemini 3.1 Flash / Gemini 3 Flash
 GEMINI_FALLBACK_MODELS = [
+    "gemini-3.1-flash-lite-preview",
     "gemini-3.1-flash-preview",
     "gemini-3-flash-preview",
     "gemini-2.5-flash",

@@ -15,7 +15,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from app.routers import market, auth, weather, scanner, harvestiq, satellite, assistant, research
+from app.routers import market, auth, weather, scanner, harvestiq, satellite, assistant, research, schemes
 from app.database import auth_engine, mandi_engine, AuthBase, MandiBase
 
 ml_models = {}
@@ -118,6 +118,8 @@ app.include_router(satellite.router, prefix='/api/satellite', tags=["Satellite"]
 app.include_router(assistant.router, prefix='/api/assistant', tags=["Assistant"])
 # Research — Agricultural & Product Research Engine
 app.include_router(research.router, prefix='/api/assistant', tags=["Research"])
+# Schemes — Dynamic AI-powered government schemes
+app.include_router(schemes.router, prefix='/api/schemes', tags=["Schemes"])
 
 @app.get('/')
 async def root():

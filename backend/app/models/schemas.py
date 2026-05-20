@@ -50,3 +50,19 @@ class ResearchRequest(BaseModel):
     language: str
     history: Optional[List[Dict[str, Any]]] = None
 
+class StateSchemeRequest(BaseModel):
+    state: str
+    language: str = "en"
+    district: Optional[str] = None
+
+class SchemeExplainRequest(BaseModel):
+    scheme_name: str
+    scheme_details: str
+    language: str = "en"
+
+class EligibilityCheckRequest(BaseModel):
+    scheme_name: str
+    land_size_acres: float
+    social_category: str  # General, OBC, SC, ST
+    annual_income: float
+    language: str = "en"

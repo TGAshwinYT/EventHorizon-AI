@@ -1,0 +1,371 @@
+
+<h2 class="sr-only">Dynamic Government Schemes Explorer — AI-powered, multilingual farm scheme finder</h2>
+
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-sans); }
+.schemes-root { padding: 1rem 0; }
+.top-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 1.25rem; flex-wrap: wrap; }
+.search-wrap { flex: 1; min-width: 180px; position: relative; }
+.search-wrap input { width: 100%; padding-left: 34px; }
+.search-wrap .si { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); font-size: 16px; color: var(--color-text-secondary); pointer-events: none; }
+.tag-row { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 1rem; }
+.tag { font-size: 12px; padding: 4px 10px; border-radius: 99px; border: 0.5px solid var(--color-border-secondary); background: var(--color-background-secondary); color: var(--color-text-secondary); cursor: pointer; transition: all 0.15s; }
+.tag.active { background: #1A4731; color: #fff; border-color: #1A4731; }
+.tag:hover:not(.active) { border-color: var(--color-border-primary); color: var(--color-text-primary); }
+.schemes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+.scheme-card { background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); padding: 1rem 1.1rem; cursor: pointer; transition: border-color 0.15s; }
+.scheme-card:hover { border-color: var(--color-border-primary); }
+.scheme-card.expanded { border: 1.5px solid #1A4731; }
+.card-head { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 8px; }
+.card-icon { width: 36px; height: 36px; border-radius: var(--border-radius-md); display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 18px; }
+.card-icon.green { background: #eaf3de; color: #3B6D11; }
+.card-icon.blue { background: #e6f1fb; color: #185FA5; }
+.card-icon.amber { background: #faeeda; color: #854F0B; }
+.card-icon.teal { background: #e1f5ee; color: #0F6E56; }
+.card-icon.purple { background: #eeedfe; color: #534AB7; }
+.card-icon.coral { background: #faece7; color: #993C1D; }
+.card-title { font-size: 14px; font-weight: 500; color: var(--color-text-primary); line-height: 1.3; }
+.card-sub { font-size: 12px; color: var(--color-text-secondary); margin-top: 2px; }
+.badges { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 8px; }
+.badge { font-size: 11px; padding: 2px 7px; border-radius: 99px; }
+.badge.cat { background: #eaf3de; color: #27500A; }
+.badge.elig { background: #e6f1fb; color: #0C447C; }
+.badge.new { background: #faeeda; color: #633806; }
+.card-desc { font-size: 13px; color: var(--color-text-secondary); line-height: 1.55; margin-bottom: 10px; }
+.expand-body { border-top: 0.5px solid var(--color-border-tertiary); padding-top: 10px; margin-top: 4px; }
+.detail-row { display: flex; gap: 8px; margin-bottom: 6px; font-size: 13px; }
+.detail-row .dl { color: var(--color-text-secondary); min-width: 90px; flex-shrink: 0; }
+.detail-row .dv { color: var(--color-text-primary); }
+.action-row { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.btn-apply { font-size: 12px; padding: 6px 12px; border-radius: var(--border-radius-md); background: #1A4731; color: #fff; border: none; cursor: pointer; display: flex; align-items: center; gap: 5px; }
+.btn-yt { font-size: 12px; padding: 6px 12px; border-radius: var(--border-radius-md); background: #fcebeb; color: #A32D2D; border: 0.5px solid #F09595; cursor: pointer; display: flex; align-items: center; gap: 5px; }
+.btn-ask { font-size: 12px; padding: 6px 12px; border-radius: var(--border-radius-md); background: var(--color-background-secondary); color: var(--color-text-secondary); border: 0.5px solid var(--color-border-secondary); cursor: pointer; display: flex; align-items: center; gap: 5px; }
+.btn-ask:hover, .btn-apply:hover, .btn-yt:hover { opacity: 0.85; }
+.lang-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 1rem; }
+.lang-bar label { font-size: 13px; color: var(--color-text-secondary); }
+.lang-bar select { font-size: 13px; padding: 4px 8px; }
+.empty { text-align: center; padding: 2rem; color: var(--color-text-secondary); font-size: 14px; }
+.new-pill { display: inline-flex; align-items: center; gap: 3px; font-size: 10px; font-weight: 500; padding: 2px 6px; border-radius: 99px; background: #faeeda; color: #633806; margin-left: 6px; vertical-align: middle; }
+.ai-banner { background: #eaf3de; border: 0.5px solid #C0DD97; border-radius: var(--border-radius-md); padding: 8px 12px; font-size: 12px; color: #27500A; margin-bottom: 1rem; display: flex; align-items: center; gap: 8px; }
+</style>
+
+<div class="schemes-root">
+  <div class="ai-banner">
+    <i class="ti ti-sparkles" aria-hidden="true" style="font-size:16px"></i>
+    <span>AI-powered — schemes update dynamically. Ask Horizon about any scheme for detailed guidance in your language.</span>
+  </div>
+
+  <div class="lang-bar">
+    <label for="lang-sel"><i class="ti ti-language" aria-hidden="true" style="font-size:15px;vertical-align:-2px;margin-right:3px"></i>Language:</label>
+    <select id="lang-sel">
+      <option value="en">English</option>
+      <option value="ta">Tamil / தமிழ்</option>
+      <option value="hi">Hindi / हिंदी</option>
+      <option value="te">Telugu / తెలుగు</option>
+      <option value="kn">Kannada / ಕನ್ನಡ</option>
+      <option value="ml">Malayalam / മലയാളം</option>
+      <option value="bn">Bengali / বাংলা</option>
+      <option value="mr">Marathi / मराठी</option>
+    </select>
+  </div>
+
+  <div class="top-bar">
+    <div class="search-wrap">
+      <i class="ti ti-search si" aria-hidden="true"></i>
+      <input type="text" id="scheme-search" placeholder="Search schemes..." />
+    </div>
+  </div>
+
+  <div class="tag-row" id="cat-tags"></div>
+  <div class="schemes-grid" id="schemes-grid"></div>
+</div>
+
+<script>
+const SCHEMES = [
+  {
+    id: "pm-kisan",
+    name: { en: "PM-KISAN", ta: "PM-KISAN", hi: "PM-KISAN", te: "PM-KISAN", kn: "PM-KISAN", ml: "PM-KISAN", bn: "PM-KISAN", mr: "PM-KISAN" },
+    desc: {
+      en: "₹6,000/year direct income support in 3 installments to small & marginal landholding farmer families.",
+      ta: "சிறு மற்றும் குறு விவசாயிகளுக்கு ஆண்டுக்கு ₹6,000 வருமான உதவி — 3 தவணைகளில் நேரடி பயனாளர் வங்கிக் கணக்கில் வரவு வைக்கப்படும்.",
+      hi: "छोटे और सीमांत किसानों को ₹6,000/वर्ष — 3 किश्तों में सीधे बैंक खाते में।",
+      te: "చిన్న రైతులకు ₹6,000/సంవత్సరం — 3 వాయిదాల్లో నేరుగా బ్యాంకు ఖాతాకు.",
+      kn: "ಸಣ್ಣ ರೈತರಿಗೆ ₹6,000/ವರ್ಷ — 3 ಕಂತುಗಳಲ್ಲಿ ನೇರವಾಗಿ ಬ್ಯಾಂಕ್ ಖಾತೆಗೆ.",
+      ml: "ചെറുകിട കർഷകർക്ക് ₹6,000/വർഷം — 3 ഗഡുക്കളായി ബാങ്ക് അക്കൗണ്ടിലേക്ക് നേരിട്ട്.",
+      bn: "ক্ষুদ্র কৃষকদের ₹6,000/বছর — 3 কিস্তিতে সরাসরি ব্যাংক একাউন্টে।",
+      mr: "लहान शेतकऱ्यांना ₹6,000/वर्ष — 3 हप्त्यांमध्ये थेट बँक खात्यात।"
+    },
+    cat: "Income Support",
+    icon: "ti-cash",
+    color: "green",
+    eligibility: "Land-owning farmers (excluding institutional landholders)",
+    benefit: "₹6,000/year",
+    new: false,
+    applyLink: "https://pmkisan.gov.in",
+    ytQuery: "PM KISAN apply registration",
+    detailKey: "pm-kisan"
+  },
+  {
+    id: "pmfby",
+    name: { en: "Pradhan Mantri Fasal Bima Yojana", ta: "பிரதான் மந்திரி பயிர் காப்பீட்டு திட்டம்", hi: "प्रधानमंत्री फसल बीमा योजना", te: "ప్రధాన మంత్రి ఫసల్ బీమా యోజన", kn: "ಪ್ರಧಾನ ಮಂತ್ರಿ ಫಸಲ್ ಬಿಮಾ ಯೋಜನೆ", ml: "പ്രധാൻ മന്ത്രി ഫസൽ ബിമ യോജന", bn: "প্রধানমন্ত্রী ফসল বিমা যোজনা", mr: "प्रधानमंत्री पीक विमा योजना" },
+    desc: {
+      en: "Comprehensive crop insurance against natural calamities, pests & diseases. Premium as low as 2% for kharif, 1.5% for rabi crops.",
+      ta: "இயற்கை பேரிடர், பூச்சி மற்றும் நோய்களால் பயிர் இழப்பிற்கு காப்பீடு. கரீப் 2%, ரபி 1.5% மட்டுமே பிரீமியம்.",
+      hi: "प्राकृतिक आपदा, कीट और बीमारी से फसल नुकसान पर बीमा। खरीफ 2%, रबी 1.5% प्रीमियम।",
+      te: "సహజ విపత్తులు, తెగుళ్ళు వల్ల పంట నష్టానికి బీమా. ఖరీఫ్ 2%, రబీ 1.5% ప్రీమియం.",
+      kn: "ನೈಸರ್ಗಿಕ ವಿಪತ್ತು, ಕೀಟ ಹಾನಿಗೆ ಬೆಳೆ ವಿಮೆ. ಖರೀಫ್ 2%, ರಬಿ 1.5% ಪ್ರೀಮಿಯಂ.",
+      ml: "പ്രകൃതി ദുരന്തം, കീടങ്ങൾ മൂലം വിള നഷ്ടത്തിന് ഇൻഷുറൻസ്. ഖരീഫ് 2%, റബി 1.5%.",
+      bn: "প্রাকৃতিক দুর্যোগ, পোকামাকড়ে ফসল ক্ষতির বিমা। খরিফ 2%, রবি 1.5% প্রিমিয়াম।",
+      mr: "नैसर्गिक आपत्ती, कीडरोगामुळे पीक नुकसानीस विमा. खरीफ 2%, रबी 1.5%।"
+    },
+    cat: "Insurance",
+    icon: "ti-shield-check",
+    color: "blue",
+    eligibility: "All farmers growing notified crops",
+    benefit: "Full Sum Insured on crop loss",
+    new: false,
+    applyLink: "https://pmfby.gov.in",
+    ytQuery: "PMFBY crop insurance apply online",
+    detailKey: "pmfby"
+  },
+  {
+    id: "kcc",
+    name: { en: "Kisan Credit Card (KCC)", ta: "கிசான் கிரெடிட் கார்டு", hi: "किसान क्रेडिट कार्ड", te: "కిసాన్ క్రెడిట్ కార్డ్", kn: "ಕಿಸಾನ್ ಕ್ರೆಡಿಟ್ ಕಾರ್ಡ್", ml: "കിസാൻ ക്രെഡിറ്റ് കാർഡ്", bn: "কিসান ক্রেডিট কার্ড", mr: "किसान क्रेडिट कार्ड" },
+    desc: {
+      en: "Easy short-term credit at 7% p.a. (4% with timely repayment) for seeds, fertilisers, pesticides, post-harvest & allied needs up to ₹3 lakh.",
+      ta: "விதைகள், உரம், பூச்சிக்கொல்லி, அறுவடைக்கு பிந்தைய தேவைகளுக்கு 7% வட்டியில் (சரியான திருப்பிச் செலுத்துதலில் 4%) ₹3 லட்சம் வரை கடன்.",
+      hi: "बीज, खाद, कीटनाशक के लिए 7% (समय पर चुकाने पर 4%) ब्याज पर ₹3 लाख तक।",
+      te: "విత్తనాలు, ఎరువులు, పురుగుమందులకు 7% (సకాలంలో చెల్లిస్తే 4%) వడ్డీపై ₹3 లక్షల వరకు.",
+      kn: "ಬೀಜ, ಗೊಬ್ಬರ, ಕೀಟನಾಶಕಕ್ಕೆ 7% (ಸಮಯಕ್ಕೆ ಮರುಪಾವತಿಸಿದರೆ 4%) ಬಡ್ಡಿಯಲ್ಲಿ ₹3 ಲಕ್ಷ ವರೆಗೆ.",
+      ml: "വിത്ത്, വളം, കീടനാശിനിക്ക് 7% (സമയബദ്ധ തിരിച്ചടവ് 4%) പലിശയ്ക്ക് ₹3 ലക്ഷം വരെ.",
+      bn: "বীজ, সার, কীটনাশকের জন্য 7% (সময়মতো পরিশোধে 4%) সুদে ₹3 লাখ পর্যন্ত।",
+      mr: "बियाणे, खत, कीटकनाशकासाठी 7% (वेळेवर परतफेड 4%) व्याजाने ₹3 लाखापर्यंत।"
+    },
+    cat: "Credit",
+    icon: "ti-credit-card",
+    color: "teal",
+    eligibility: "All farmers, sharecroppers, tenant farmers",
+    benefit: "Up to ₹3 lakh at 4–7% p.a.",
+    new: false,
+    applyLink: "https://www.sbi.co.in/web/personal-banking/loans/agricultural-loans/kisan-credit-card",
+    ytQuery: "Kisan Credit Card apply bank",
+    detailKey: "kcc"
+  },
+  {
+    id: "enam",
+    name: { en: "e-NAM (National Agriculture Market)", ta: "இ-நாம் தேசிய விவசாய சந்தை", hi: "ई-नाम राष्ट्रीय कृषि बाजार", te: "ఇ-నామ్ జాతీయ వ్యవసాయ మార్కెట్", kn: "ಇ-ನಾಮ್ ರಾಷ್ಟ್ರೀಯ ಕೃಷಿ ಮಾರುಕಟ್ಟೆ", ml: "ഇ-നാം ദേശീയ കൃഷി കമ്പോളം", bn: "ই-নাম জাতীয় কৃষি বাজার", mr: "ई-नाम राष्ट्रीय कृषी बाजार" },
+    desc: {
+      en: "Online pan-India trading platform linking APMCs to get better prices. Sell produce via mobile app to buyers across India — no middlemen.",
+      ta: "இந்தியா முழுவதும் உள்ள வாங்குபவர்களுக்கு மொபைல் ஆப் மூலம் விளைபொருள்களை விற்று சிறந்த விலை பெறுங்கள் — இடைத்தரகர் இல்லாமல்.",
+      hi: "मोबाइल ऐप से पूरे भारत के खरीदारों को उपज बेचें — बिना बिचौलिए बेहतर कीमत पाएं।",
+      te: "మొబైల్ యాప్ ద్వారా భారతదేశమంతటా కొనుగోలుదారులకు ఉత్పత్తి అమ్మండి — మధ్యవర్తులు లేకుండా.",
+      kn: "ಮೊಬೈಲ್ ಆಪ್ ಮೂಲಕ ಭಾರತಾದ್ಯಂತ ಖರೀದಿದಾರರಿಗೆ ಉತ್ಪನ್ನ ಮಾರಾಟ — ಮಧ್ಯವರ್ತಿ ಇಲ್ಲದೆ.",
+      ml: "മൊബൈൽ ആപ്പ് വഴി ഇന്ത്യ മുഴുവൻ വാങ്ങുന്നവർക്ക് ഉൽപ്പന്നം വിൽക്കൂ — ഇടനിലക്കാർ ഇല്ലാതെ.",
+      bn: "মোবাইল অ্যাপ দিয়ে সারা ভারতে ক্রেতাদের কাছে পণ্য বিক্রি করুন — মধ্যস্থতাকারী ছাড়া।",
+      mr: "मोबाइल अॅपद्वारे संपूर्ण भारतातील खरेदीदारांना उत्पादन विका — दलालाशिवाय."
+    },
+    cat: "Market Access",
+    icon: "ti-building-store",
+    color: "amber",
+    eligibility: "Farmers registered with their local APMC mandi",
+    benefit: "Better price discovery, direct sale",
+    new: false,
+    applyLink: "https://enam.gov.in",
+    ytQuery: "eNAM farmer registration online",
+    detailKey: "enam"
+  },
+  {
+    id: "pmksy",
+    name: { en: "PM Krishi Sinchayee Yojana (PMKSY)", ta: "PM கிருஷி சிஞ்சாயி யோஜனா", hi: "प्रधानमंत्री कृषि सिंचाई योजना", te: "పిఎమ్ కృషి సించాయి యోజన", kn: "PM ಕೃಷಿ ಸಿಂಚಾಯಿ ಯೋಜನೆ", ml: "PM കൃഷി സിഞ്ചായ് യോജന", bn: "PM কৃষি সিঞ্চাই যোজনা", mr: "PM कृषी सिंचाई योजना" },
+    desc: {
+      en: "'Har Khet Ko Paani, More Crop Per Drop' — subsidy for drip/sprinkler irrigation systems, extending irrigation coverage to new areas.",
+      ta: "தொட்டி நீர்ப்பாசனம், தெளிப்பு நீர்ப்பாசன அமைப்புகளுக்கு மானியம் — குறைவான தண்ணீரில் அதிக விளைச்சல்.",
+      hi: "'हर खेत को पानी' — ड्रिप/स्प्रिंकलर सिंचाई के लिए सब्सिडी।",
+      te: "డ్రిప్/స్ప్రింక్లర్ నీటి పారుదల వ్యవస్థలకు సబ్సిడీ — తక్కువ నీటిలో ఎక్కువ దిగుబడి.",
+      kn: "ಡ್ರಿಪ್/ಸ್ಪ್ರಿಂಕ್ಲರ್ ನೀರಾವರಿ ವ್ಯವಸ್ಥೆಗಳಿಗೆ ಸಹಾಯಧನ.",
+      ml: "ഡ്രിപ്/സ്പ്രിങ്ക്ലർ ജലസേചന സംവിധാനങ്ങൾക്ക് സബ്സിഡി.",
+      bn: "ড্রিপ/স্প্রিংকলার সেচ ব্যবস্থার জন্য ভর্তুকি।",
+      mr: "ठिबक/तुषार सिंचनासाठी अनुदान."
+    },
+    cat: "Irrigation",
+    icon: "ti-droplet",
+    color: "teal",
+    eligibility: "All categories of farmers with own or leased land",
+    benefit: "55–75% subsidy on drip/sprinkler systems",
+    new: false,
+    applyLink: "https://pmksy.gov.in",
+    ytQuery: "PMKSY drip irrigation subsidy apply",
+    detailKey: "pmksy"
+  },
+  {
+    id: "agriinfra",
+    name: { en: "Agriculture Infrastructure Fund (AIF)", ta: "விவசாய உள்கட்டமைப்பு நிதி", hi: "कृषि अवसंरचना कोष", te: "వ్యవసాయ మౌలిక సదుపాయాల నిధి", kn: "ಕೃಷಿ ಮೂಲಸೌಕರ್ಯ ನಿಧಿ", ml: "കൃഷി ഇൻഫ്രാസ്ട്രക്ചർ ഫണ്ട്", bn: "কৃষি পরিকাঠামো তহবিল", mr: "कृषी पायाभूत सुविधा निधी" },
+    desc: {
+      en: "₹1 lakh crore fund for post-harvest infrastructure — cold storage, warehouses, pack houses, sorting/grading units with 3% interest subvention.",
+      ta: "குளிர்பதன கிடங்கு, கோடவ்ண்டகள், தரம் பிரிக்கும் அலகுகள் நிறுவ 3% வட்டி மானியத்துடன் ₹1 லட்சம் கோடி நிதி.",
+      hi: "कोल्ड स्टोरेज, वेयरहाउस बनाने के लिए 3% ब्याज सब्वेंशन के साथ ₹1 लाख करोड़ का फंड।",
+      te: "కోల్డ్ స్టోరేజ్, వేర్‌హౌస్ నిర్మాణానికి 3% వడ్డీ రాయితీతో ₹1 లక్ష కోట్ల నిధి.",
+      kn: "ಶೀತಲ ಗೃಹ, ಗೋದಾಮು ನಿರ್ಮಾಣಕ್ಕೆ 3% ಬಡ್ಡಿ ಸಬ್ವೆನ್ಷನ್‌ನೊಂದಿಗೆ ₹1 ಲಕ್ಷ ಕೋಟಿ ನಿಧಿ.",
+      ml: "ശീതകക്ഷ, ഗോഡൗൺ നിർമ്മാണത്തിന് 3% പലിശ ആനുകൂല്യത്തോടെ ₹1 ലക്ഷം കോടി ഫണ്ട്.",
+      bn: "কোল্ড স্টোরেজ, গুদাম নির্মাণে 3% সুদ ভর্তুকি সহ ₹1 লক্ষ কোটি তহবিল।",
+      mr: "शीतगृह, गोदाम उभारणीसाठी 3% व्याज सवलतीसह ₹1 लाख कोटी निधी."
+    },
+    cat: "Infrastructure",
+    icon: "ti-building-warehouse",
+    color: "purple",
+    eligibility: "FPOs, PACS, SHGs, farmers, startups",
+    benefit: "Loans up to ₹2 crore with 3% subvention",
+    new: true,
+    applyLink: "https://agriinfra.dac.gov.in",
+    ytQuery: "Agriculture Infrastructure Fund AIF apply loan",
+    detailKey: "aif"
+  },
+  {
+    id: "pkvy",
+    name: { en: "Paramparagat Krishi Vikas Yojana (PKVY)", ta: "பரம்பரகத் கிருஷி விகாஸ் யோஜனா", hi: "परम्परागत कृषि विकास योजना", te: "పరంపరగత్ కృషి వికాస్ యోజన", kn: "ಪರಂಪರಾಗತ ಕೃಷಿ ವಿಕಾಸ ಯೋಜನೆ", ml: "പരംപരഗത് കൃഷി വികാസ് യോജന", bn: "পরম্পরাগত কৃষি বিকাশ যোজনা", mr: "पारंपरिक कृषी विकास योजना" },
+    desc: {
+      en: "Promotes organic farming — clusters of 50 farmers get ₹50,000/ha over 3 years for conversion, certification & marketing of organic produce.",
+      ta: "இயற்கை விவசாயத்திற்கு 50 விவசாயிகள் கொண்ட குழுக்களுக்கு 3 ஆண்டுகளில் ₹50,000/ஹெக்டேர் உதவி.",
+      hi: "50 किसानों के समूह को 3 वर्षों में ₹50,000/हेक्टेयर — जैविक खेती प्रमाणीकरण और विपणन के लिए।",
+      te: "50 రైతుల సమూహానికి 3 సంవత్సరాలలో ₹50,000/హెక్టేర్ — సేంద్రీయ వ్యవసాయ సర్టిఫికేషన్‌కు.",
+      kn: "50 ರೈತರ ಗುಂಪಿಗೆ 3 ವರ್ಷಗಳಲ್ಲಿ ₹50,000/ಹೆಕ್ಟೇರ್ — ಸಾವಯವ ಕೃಷಿ ಪ್ರಮಾಣೀಕರಣಕ್ಕಾಗಿ.",
+      ml: "50 കർഷകരുടെ ഗ്രൂപ്പിന് 3 വർഷത്തിൽ ₹50,000/ഹെക്ടർ — ജൈവ കൃഷി സർട്ടിഫിക്കേഷൻ.",
+      bn: "50 কৃষকের দলকে 3 বছরে ₹50,000/হেক্টর — জৈব চাষ সার্টিফিকেশনের জন্য।",
+      mr: "50 शेतकऱ्यांच्या गटाला 3 वर्षांत ₹50,000/हेक्टर — सेंद्रिय शेती प्रमाणीकरणासाठी."
+    },
+    cat: "Organic Farming",
+    icon: "ti-leaf",
+    color: "green",
+    eligibility: "Groups of minimum 50 farmers (20 ha cluster)",
+    benefit: "₹50,000/ha over 3 years",
+    new: false,
+    applyLink: "https://pgsindia-ncof.gov.in",
+    ytQuery: "PKVY organic farming scheme apply",
+    detailKey: "pkvy"
+  },
+  {
+    id: "smam",
+    name: { en: "Sub-Mission on Agri Mechanisation (SMAM)", ta: "வேளாண் இயந்திரமயமாக்கல் துணை திட்டம்", hi: "कृषि यंत्रीकरण पर उप-मिशन", te: "వ్యవసాయ యాంత్రీకరణ ఉప-మిషన్", kn: "ಕೃಷಿ ಯಾಂತ್ರೀಕರಣ ಉಪ-ಮಿಷನ್", ml: "കൃഷി യന്ത്രവൽക്കരണ ഉപ-മിഷൻ", bn: "কৃষি যন্ত্রায়ন উপ-মিশন", mr: "शेती यांत्रिकीकरण उप-अभियान" },
+    desc: {
+      en: "40–50% subsidy on farm machinery — tractors, combine harvesters, seed drills, rotavators. Higher subsidy for SC/ST and small/marginal farmers.",
+      ta: "ட்ராக்டர், கலை அறுவடை இயந்திரம், விதை ஊட்டிகளுக்கு 40–50% மானியம். SC/ST மற்றும் சிறு விவசாயிகளுக்கு அதிக மானியம்.",
+      hi: "ट्रैक्टर, कंबाइन हार्वेस्टर पर 40–50% सब्सिडी। SC/ST किसानों को अधिक सब्सिडी।",
+      te: "ట్రాక్టర్లు, కంబైన్ హార్వెస్టర్లకు 40–50% సబ్సిడీ. SC/ST రైతులకు అధిక సబ్సిడీ.",
+      kn: "ಟ್ರ್ಯಾಕ್ಟರ್, ಕಂಬೈನ್ ಹಾರ್ವೆಸ್ಟರ್‌ಗಳಿಗೆ 40–50% ಸಹಾಯಧನ. SC/ST ರೈತರಿಗೆ ಹೆಚ್ಚಿನ ಸಹಾಯ.",
+      ml: "ട്രാക്ടർ, ഹാർവെസ്റ്ററുകൾക്ക് 40–50% സബ്സിഡി. SC/ST കർഷകർക്ക് കൂടുതൽ.",
+      bn: "ট্র্যাক্টর, হার্ভেস্টারে 40–50% ভর্তুকি। SC/ST কৃষকদের বেশি সুবিধা।",
+      mr: "ट्रॅक्टर, हार्वेस्टरवर 40–50% अनुदान. SC/ST शेतकऱ्यांना जास्त लाभ."
+    },
+    cat: "Mechanisation",
+    icon: "ti-tractor",
+    color: "coral",
+    eligibility: "Individual farmers; preference to SC/ST, small & marginal farmers",
+    benefit: "40–50% subsidy on machinery cost",
+    new: false,
+    applyLink: "https://agrimachinery.nic.in",
+    ytQuery: "SMAM tractor subsidy apply online",
+    detailKey: "smam"
+  }
+];
+
+const CATS = ["All", ...new Set(SCHEMES.map(s => s.cat))];
+let activeCat = "All";
+let expandedId = null;
+let searchVal = "";
+let lang = "en";
+
+function init() {
+  renderCatTags();
+  renderSchemes();
+
+  document.getElementById("lang-sel").addEventListener("change", e => {
+    lang = e.target.value;
+    renderSchemes();
+  });
+
+  document.getElementById("scheme-search").addEventListener("input", e => {
+    searchVal = e.target.value.toLowerCase();
+    renderSchemes();
+  });
+}
+
+function renderCatTags() {
+  const wrap = document.getElementById("cat-tags");
+  wrap.innerHTML = CATS.map(c => `<button class="tag${activeCat===c?' active':''}" onclick="setCat('${c}')">${c}</button>`).join('');
+}
+
+function setCat(c) {
+  activeCat = c;
+  renderCatTags();
+  renderSchemes();
+}
+
+function renderSchemes() {
+  const grid = document.getElementById("schemes-grid");
+  let filtered = SCHEMES.filter(s => {
+    const catOk = activeCat === "All" || s.cat === activeCat;
+    const n = (s.name[lang] || s.name.en).toLowerCase();
+    const d = (s.desc[lang] || s.desc.en).toLowerCase();
+    const searchOk = !searchVal || n.includes(searchVal) || d.includes(searchVal) || s.cat.toLowerCase().includes(searchVal);
+    return catOk && searchOk;
+  });
+
+  if (!filtered.length) {
+    grid.innerHTML = '<div class="empty"><i class="ti ti-mood-empty" style="font-size:28px;display:block;margin-bottom:8px" aria-hidden="true"></i>No schemes found. Try a different search or category.</div>';
+    return;
+  }
+
+  grid.innerHTML = filtered.map(s => renderCard(s)).join('');
+}
+
+function renderCard(s) {
+  const name = s.name[lang] || s.name.en;
+  const desc = s.desc[lang] || s.desc.en;
+  const isExp = expandedId === s.id;
+  return `<div class="scheme-card${isExp?' expanded':''}" onclick="toggleExpand('${s.id}')">
+    <div class="card-head">
+      <div class="card-icon ${s.color}" aria-hidden="true"><i class="ti ${s.icon}"></i></div>
+      <div>
+        <div class="card-title">${name}${s.new?'<span class="new-pill"><i class="ti ti-sparkles" style="font-size:10px" aria-hidden="true"></i> New</span>':''}</div>
+        <div class="card-sub">${s.cat}</div>
+      </div>
+    </div>
+    <div class="badges">
+      <span class="badge elig"><i class="ti ti-users" style="font-size:11px;vertical-align:-1px" aria-hidden="true"></i> ${s.eligibility.length > 38 ? s.eligibility.slice(0,38)+'…' : s.eligibility}</span>
+    </div>
+    <p class="card-desc">${desc}</p>
+    ${isExp ? `<div class="expand-body">
+      <div class="detail-row"><span class="dl">Key benefit</span><span class="dv">${s.benefit}</span></div>
+      <div class="action-row">
+        <a href="${s.applyLink}" target="_blank" class="btn-apply" onclick="event.stopPropagation()"><i class="ti ti-external-link" aria-hidden="true"></i> Apply Now</a>
+        <button class="btn-yt" onclick="event.stopPropagation(); openYT('${s.ytQuery}')"><i class="ti ti-brand-youtube" aria-hidden="true"></i> Watch Guide</button>
+        <button class="btn-ask" onclick="event.stopPropagation(); askHorizon('${s.id}','${lang}')"><i class="ti ti-message-circle" aria-hidden="true"></i> Ask Horizon ↗</button>
+      </div>
+    </div>` : ''}
+    <div style="margin-top:6px;font-size:11px;color:var(--color-text-secondary);display:flex;align-items:center;gap:4px">
+      <i class="ti ${isExp?'ti-chevron-up':'ti-chevron-down'}" aria-hidden="true" style="font-size:13px"></i>
+      ${isExp?'Collapse':'Tap for details & apply'}
+    </div>
+  </div>`;
+}
+
+function toggleExpand(id) {
+  expandedId = expandedId === id ? null : id;
+  renderSchemes();
+}
+
+function openYT(q) {
+  const url = "https://www.youtube.com/results?search_query=" + encodeURIComponent(q + " farm scheme how to apply");
+  window.open(url, "_blank");
+}
+
+function askHorizon(id, lang) {
+  const s = SCHEMES.find(x => x.id === id);
+  if (!s) return;
+  const name = s.name[lang] || s.name.en;
+  sendPrompt(`Tell me in detail about the ${name} government scheme — who can apply, step-by-step how to apply online, documents needed, and what benefits I will get. Explain in simple language.`);
+}
+
+init();
+</script>
