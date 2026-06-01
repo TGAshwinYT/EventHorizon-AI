@@ -27,6 +27,7 @@ const Auth = ({ onLogin }: AuthProps) => {
 
         let endpoint = '';
         let body = {};
+        const trimmedUsername = username.trim();
 
         if (isReset) {
             if (newPassword !== confirmPassword) {
@@ -35,10 +36,10 @@ const Auth = ({ onLogin }: AuthProps) => {
                 return;
             }
             endpoint = '/api/auth/reset-password';
-            body = { username, new_password: newPassword };
+            body = { username: trimmedUsername, new_password: newPassword };
         } else {
             endpoint = isLogin ? '/api/auth/login' : '/api/auth/register';
-            body = { username, password };
+            body = { username: trimmedUsername, password };
         }
 
         try {

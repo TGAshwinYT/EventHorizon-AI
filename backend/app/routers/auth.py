@@ -21,7 +21,7 @@ class ResetPasswordRequest(BaseModel):
 
 @router.post('/register', status_code=201)
 def register(data: RegisterRequest, db: Session = Depends(get_auth_db)):
-    username = data.username
+    username = data.username.strip() if data.username else ""
     password = data.password
 
     if not username or not password:
@@ -41,7 +41,7 @@ def register(data: RegisterRequest, db: Session = Depends(get_auth_db)):
 
 @router.post('/login')
 def login(data: LoginRequest):
-    username = data.username
+    username = data.username.strip() if data.username else ""
     password = data.password
 
     db: Session = AuthSessionLocal()
@@ -58,7 +58,7 @@ def login(data: LoginRequest):
 
 @router.post('/reset-password')
 def reset_password(data: ResetPasswordRequest):
-    username = data.username
+    username = data.username.strip() if data.username else ""
     new_password = data.new_password
 
     if not username or not new_password:
