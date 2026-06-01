@@ -10,6 +10,7 @@ router = APIRouter()
 class RegisterRequest(BaseModel):
     username: str
     password: str
+    phone_number: str | None = None
 
 class LoginRequest(BaseModel):
     username: str
@@ -23,6 +24,7 @@ class ResetPasswordRequest(BaseModel):
 def register(data: RegisterRequest, db: Session = Depends(get_auth_db)):
     username = data.username.strip() if data.username else ""
     password = data.password
+    phone = data.phone_number.strip() if data.phone_number else None
 
     if not username or not password:
         raise HTTPException(status_code=400, detail="Username and password required")
@@ -31,8 +33,19 @@ def register(data: RegisterRequest, db: Session = Depends(get_auth_db)):
     if existing_user:
         raise HTTPException(status_code=400, detail="Username already exists")
 
+    from app.services.crypto_service import encrypt_phone
+    encrypted_phone = encrypt_phone(phone) if phone else None
+    # If phone is provided, default alerts to enabled (1)
+    sms_alerts = 1 if encrypted_phone else 0
+
     hashed_pw = get_password_hash(password)
-    new_user = User(username=username, password_hash=hashed_pw)
+    new_user = User(
+        username=username,
+        password_hash=hashed_pw,
+        phone_number=encrypted_phone,
+        sms_alerts_enabled=sms_alerts,
+        sms_cooldown_days=7
+    )
     
     db.add(new_user)
     db.commit()
@@ -85,6 +98,9 @@ class UpdateProfileRequest(BaseModel):
     district: str | None = None
     mandal: str | None = None
     onboarding_completed: bool | None = None
+    phone_number: str | None = None
+    sms_alerts_enabled: bool | None = None
+    sms_cooldown_days: int | None = None
 
 class ChangePasswordRequest(BaseModel):
     current_password: str
@@ -107,6 +123,10 @@ def get_profile(authorization: str = Header(None)):
             db.close()
             raise HTTPException(status_code=404, detail="User not found")
         
+        from app.services.crypto_service import decrypt_phone, mask_phone_number
+        decrypted = decrypt_phone(user.phone_number)
+        masked_phone = mask_phone_number(decrypted)
+        
         user_data = {
             "username": user.username,
             "display_name": user.display_name,
@@ -115,7 +135,10 @@ def get_profile(authorization: str = Header(None)):
             "state": user.state,
             "district": user.district,
             "mandal": user.mandal,
-            "onboarding_completed": bool(user.onboarding_completed)
+            "onboarding_completed": bool(user.onboarding_completed),
+            "phone_number": masked_phone,
+            "sms_alerts_enabled": bool(user.sms_alerts_enabled),
+            "sms_cooldown_days": user.sms_cooldown_days or 7
         }
         db.close()
         return user_data
@@ -155,8 +178,26 @@ def update_profile(data: UpdateProfileRequest, authorization: str = Header(None)
         if data.onboarding_completed is not None:
             user.onboarding_completed = 1 if data.onboarding_completed else 0
             
+        # SMS configurations
+        if data.sms_alerts_enabled is not None:
+            user.sms_alerts_enabled = 1 if data.sms_alerts_enabled else 0
+        if data.sms_cooldown_days is not None:
+            user.sms_cooldown_days = max(1, min(7, data.sms_cooldown_days))
+        if data.phone_number is not None:
+            phone_val = data.phone_number.strip()
+            if not phone_val:
+                user.phone_number = None
+                user.sms_alerts_enabled = 0
+            elif "*" not in phone_val:
+                from app.services.crypto_service import encrypt_phone
+                user.phone_number = encrypt_phone(phone_val)
+            
         db.commit()
         db.refresh(user)
+        
+        from app.services.crypto_service import decrypt_phone, mask_phone_number
+        decrypted = decrypt_phone(user.phone_number)
+        masked_phone = mask_phone_number(decrypted)
         
         user_data = {
             "username": user.username,
@@ -166,7 +207,10 @@ def update_profile(data: UpdateProfileRequest, authorization: str = Header(None)
             "state": user.state,
             "district": user.district,
             "mandal": user.mandal,
-            "onboarding_completed": bool(user.onboarding_completed)
+            "onboarding_completed": bool(user.onboarding_completed),
+            "phone_number": masked_phone,
+            "sms_alerts_enabled": bool(user.sms_alerts_enabled),
+            "sms_cooldown_days": user.sms_cooldown_days or 7
         }
         db.close()
         return {"message": "Profile updated successfully", "user": user_data}

@@ -28,6 +28,7 @@ interface UserState {
   isListening: boolean;
   isSpeaking: boolean;
   isAnalyzingPage: boolean;
+  isPageLoading: boolean;
   pageSummary: string | null;
   pageKeyPoints: string[];
   pageSuggestedQuestions: string[];
@@ -41,6 +42,7 @@ interface UserState {
   setIsListening: (isListening: boolean) => void;
   setIsSpeaking: (isSpeaking: boolean) => void;
   setIsAnalyzingPage: (isAnalyzingPage: boolean) => void;
+  setIsPageLoading: (isLoading: boolean) => void;
   setActiveLanguage: (lang: string) => void;
   setOnboardingStep: (step: number) => void;
   setTtsEnabled: (enabled: boolean) => void;
@@ -63,6 +65,7 @@ export const useUserStore = create<UserState>((set, get) => ({
   isListening: false,
   isSpeaking: false,
   isAnalyzingPage: false,
+  isPageLoading: false,
   pageSummary: null,
   pageKeyPoints: [],
   pageSuggestedQuestions: [],
@@ -83,6 +86,7 @@ export const useUserStore = create<UserState>((set, get) => ({
   setIsListening: (isListening) => set({ isListening }),
   setIsSpeaking: (isSpeaking) => set({ isSpeaking }),
   setIsAnalyzingPage: (isAnalyzingPage) => set({ isAnalyzingPage }),
+  setIsPageLoading: (isPageLoading) => set({ isPageLoading }),
   
   setActiveLanguage: (lang) => {
     localStorage.setItem('event_horizon_lang', lang);

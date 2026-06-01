@@ -18,7 +18,11 @@ with auth_engine.connect() as conn:
         ('mandal', 'VARCHAR'),
         ('onboarding_completed', 'INTEGER DEFAULT 0'),
         ('crops', 'TEXT'),
-        ('alerts_enabled', 'INTEGER DEFAULT 1')
+        ('alerts_enabled', 'INTEGER DEFAULT 1'),
+        ('phone_number', 'VARCHAR'),
+        ('sms_alerts_enabled', 'INTEGER DEFAULT 0'),
+        ('sms_cooldown_days', 'INTEGER DEFAULT 7'),
+        ('last_sms_sent_at', 'TIMESTAMP')
     ]
     for col_name, col_type in columns_to_add:
         try:

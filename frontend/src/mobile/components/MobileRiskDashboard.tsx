@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
-import { ShieldAlert, Droplets, Bug, CloudRain, ArrowLeft, AlertTriangle, Loader2, TrendingUp, MapPin, Wifi, List, Play, Volume2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { ShieldAlert, Droplets, Bug, CloudRain, ArrowLeft, AlertTriangle, Loader2, TrendingUp, MapPin, Wifi, List } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import CustomSelect from '../../components/CustomSelect';
 import NdviCard from '../../components/NdviCard';
+import { useUserStore } from '../../store/userStore';
 
 /* ── Types ─────────────────────────────────────────── */
 interface RiskDetail { score: number; label: string; advisory: string; }
@@ -46,7 +47,7 @@ function riskColor(s: number) { return s < 25 ? '#22c55e' : s < 50 ? '#f59e0b' :
 function riskGlow(s: number) { return s < 25 ? 'rgba(34,197,94,0.2)' : s < 50 ? 'rgba(245,158,11,0.2)' : s < 75 ? 'rgba(239,68,68,0.2)' : 'rgba(168,85,247,0.3)'; }
 
 /* ── Component ─────────────────────────────────────── */
-export default function MobileRiskDashboard({ onBack, currentLanguage, labels }: Props) {
+export default function MobileRiskDashboard({ onBack, labels }: Props) {
     const [locationTree, setLocationTree] = useState<Record<string, string[]>>({});
     const [locMethod, setLocMethod] = useState<LocMethod>('detecting');
     const [gpsCoords, setGpsCoords] = useState<{ lat: number; lon: number } | null>(null);
@@ -57,50 +58,7 @@ export default function MobileRiskDashboard({ onBack, currentLanguage, labels }:
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const [ttsState, setTtsState] = useState<'idle' | 'loading' | 'playing'>('idle');
-    const audioRef = useRef<HTMLAudioElement | null>(null);
 
-    const playTTS = async () => {
-        if (!data?.ai_advisory) return;
-        if (ttsState === 'playing') {
-            audioRef.current?.pause();
-            setTtsState('idle');
-            return;
-        }
-
-        setTtsState('loading');
-        try {
-            const token = sessionStorage.getItem('token');
-            const res = await fetch('/api/assistant/voice/tts', {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-                },
-                body: JSON.stringify({
-                    text: data.ai_advisory,
-                    language: currentLanguage || 'en'
-                })
-            });
-
-            if (!res.ok) throw new Error('TTS failed');
-            
-            const audioBlob = await res.blob();
-            const audioUrl = URL.createObjectURL(audioBlob);
-            const audio = new Audio(audioUrl);
-            audioRef.current = audio;
-            
-            audio.onplay = () => setTtsState('playing');
-            audio.onended = () => { setTtsState('idle'); URL.revokeObjectURL(audioUrl); };
-            audio.onerror = () => { setTtsState('idle'); URL.revokeObjectURL(audioUrl); };
-            
-            audio.play().catch(() => setTtsState('idle'));
-        } catch (err) {
-            console.error(err);
-            setTtsState('idle');
-            alert('Failed to play audio.');
-        }
-    };
 
     const states = Object.keys(locationTree).sort();
     const districts = selectedState ? (locationTree[selectedState] || []) : [];
@@ -182,13 +140,21 @@ export default function MobileRiskDashboard({ onBack, currentLanguage, labels }:
                     const parsed = JSON.parse(cached);
                     setData(parsed);
                     setLoading(false);
+                    useUserStore.setState({ isPageLoading: false });
                     return;
                 }
             } catch (e) {
                 console.warn("[HarvestIQ] Failed to read from sessionStorage:", e);
             }
 
-            setLoading(true); setError(null);
+            setLoading(true); 
+            useUserStore.setState({ 
+                isPageLoading: true,
+                pageSummary: null,
+                pageKeyPoints: [],
+                pageSuggestedQuestions: []
+            });
+            setError(null);
             try {
                 const payload: any = { crop_name: selectedCrop, lang: labels?.lang || 'en' };
                 if (locMethod === 'gps' && gpsCoords) { payload.lat = gpsCoords.lat; payload.lon = gpsCoords.lon; }
@@ -204,6 +170,7 @@ export default function MobileRiskDashboard({ onBack, currentLanguage, labels }:
                 
                 if (!cancelled) {
                     setData(json);
+                    useUserStore.setState({ isPageLoading: false });
                     // Save to sessionStorage
                     try {
                         sessionStorage.setItem(cacheKey, JSON.stringify(json));
@@ -212,9 +179,15 @@ export default function MobileRiskDashboard({ onBack, currentLanguage, labels }:
                     }
                 }
             } catch {
-                if (!cancelled) setError('Failed to fetch data');
+                if (!cancelled) {
+                    setError('Failed to fetch data');
+                    useUserStore.setState({ isPageLoading: false });
+                }
             } finally {
-                if (!cancelled) setLoading(false);
+                if (!cancelled) {
+                    setLoading(false);
+                    useUserStore.setState({ isPageLoading: false });
+                }
             }
         };
         doFetch();
@@ -289,20 +262,22 @@ export default function MobileRiskDashboard({ onBack, currentLanguage, labels }:
                 </div>
 
                 {/* Loading */}
-                {(loading || locMethod === 'detecting') && !data && (
+                {(loading || locMethod === 'detecting') && (
                     <div className="flex flex-col items-center justify-center py-20">
                         <Loader2 className="w-10 h-10 text-amber-400 animate-spin mb-3" />
-                        <p className="text-gray-400 text-sm animate-pulse">{locMethod === 'detecting' ? 'Detecting location…' : 'Analyzing…'}</p>
+                        <p className="text-gray-400 text-sm animate-pulse">
+                            {locMethod === 'detecting' ? 'Detecting location…' : 'Analyzing risk factors for the new place…'}
+                        </p>
                     </div>
                 )}
-                {error && !data && (
+                {error && !loading && (
                     <div className="flex flex-col items-center justify-center py-20">
                         <AlertTriangle className="w-10 h-10 text-red-500 mb-3" />
                         <p className="text-gray-400 text-sm">{error}</p>
                     </div>
                 )}
 
-                {data && (
+                {data && !loading && locMethod !== 'detecting' && (
                     <>
                         {/* Gauges */}
                         <div className="flex gap-3 overflow-x-auto pb-2 snap-x snap-mandatory [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
@@ -451,50 +426,7 @@ export default function MobileRiskDashboard({ onBack, currentLanguage, labels }:
                             </div>
                         )}
 
-                        {/* AI Advisory */}
-                        {data.ai_advisory && (
-                            <div className="bg-[#111318]/90 backdrop-blur-xl rounded-2xl border border-white/5 p-4 flex flex-col">
-                                <div className="flex items-center gap-2 mb-3">
-                                    <span className="text-sm">✨</span>
-                                    <h3 className="text-xs font-semibold text-gray-300 uppercase tracking-wider">AI Advisory</h3>
-                                </div>
-                                <div className="bg-white/5 rounded-xl p-3 border border-white/5 mb-3">
-                                    <p className="text-gray-300 text-[11px] leading-relaxed">{data.ai_advisory}</p>
-                                </div>
-                                <div className="flex gap-2">
-                                    <button 
-                                        className={`flex-1 border rounded-lg py-2 text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all active:scale-95 ${
-                                            ttsState === 'playing' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
-                                            ttsState === 'loading' ? 'bg-purple-600/10 text-purple-400 border-purple-500/30 opacity-70' :
-                                            'bg-purple-600/20 hover:bg-purple-600/30 text-purple-400 border-purple-500/30'
-                                        }`}
-                                        onClick={playTTS}
-                                        disabled={ttsState === 'loading'}
-                                    >
-                                        {ttsState === 'loading' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : 
-                                         ttsState === 'playing' ? <Volume2 className="w-3.5 h-3.5" /> : 
-                                         <Play className="w-3.5 h-3.5" />}
-                                        {ttsState === 'playing' ? 'Playing...' : 
-                                         ttsState === 'loading' ? 'Loading...' : 'Play Audio'}
-                                    </button>
-                                    <button 
-                                        className="flex-1 bg-white/5 text-gray-300 border border-white/10 rounded-lg py-2 text-[11px] font-bold transition-all active:scale-95"
-                                        onClick={async () => {
-                                            try {
-                                                const smsRes = await fetch(`/api/harvestiq/advisory/sms?crop=${encodeURIComponent(selectedCrop)}&lat=${gpsCoords?.lat || 0}&lon=${gpsCoords?.lon || 0}&lang=${labels?.lang || 'en'}`);
-                                                if(smsRes.ok) {
-                                                    const smsData = await smsRes.json();
-                                                    navigator.clipboard.writeText(smsData.sms_text);
-                                                    alert("SMS copied to clipboard:\n\n" + smsData.sms_text);
-                                                }
-                                            } catch(e) { console.error(e); }
-                                        }}
-                                    >
-                                        Copy SMS
-                                    </button>
-                                </div>
-                            </div>
-                        )}
+
                     </>
                 )}
             </div>

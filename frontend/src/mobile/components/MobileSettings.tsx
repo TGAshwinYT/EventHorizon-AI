@@ -24,11 +24,30 @@ const MobileSettings = ({ onBack, currentLanguage, onLanguageChange, username, d
     const [newAvatar] = useState(avatarUrl || '');
     const [status, setStatus] = useState('');
 
+    // SMS Notifications states
+    const [phone, setPhone] = useState('');
+    const [smsEnabled, setSmsEnabled] = useState(false);
+    const [cooldownDays, setCooldownDays] = useState(7);
+
     // Editable Location states
     const [editState, setEditState] = useState(userLocation?.state || '');
     const [editDistrict, setEditDistrict] = useState(userLocation?.district || '');
     const [editMandal, setEditMandal] = useState(userLocation?.mandal || '');
     const [locationTree, setLocationTree] = useState<Record<string, string[]>>({});
+
+    useEffect(() => {
+        if (!token) return;
+        fetch('/api/auth/profile', {
+            headers: { 'Authorization': `Bearer ${token}` }
+        })
+        .then(r => r.ok ? r.json() as Promise<any> : {} as any)
+        .then(profile => {
+            if (profile.phone_number !== undefined) setPhone(profile.phone_number || '');
+            if (profile.sms_alerts_enabled !== undefined) setSmsEnabled(profile.sms_alerts_enabled);
+            if (profile.sms_cooldown_days !== undefined) setCooldownDays(profile.sms_cooldown_days);
+        })
+        .catch(e => console.error("Failed to load SMS preferences:", e));
+    }, [token]);
 
     useEffect(() => {
         if (userLocation) {
@@ -66,7 +85,10 @@ const MobileSettings = ({ onBack, currentLanguage, onLanguageChange, username, d
                     avatar_url: newAvatar,
                     state: editState,
                     district: editDistrict,
-                    mandal: editMandal
+                    mandal: editMandal,
+                    phone_number: phone,
+                    sms_alerts_enabled: smsEnabled,
+                    sms_cooldown_days: cooldownDays
                 })
             });
             if (res.ok) {
@@ -242,6 +264,63 @@ const MobileSettings = ({ onBack, currentLanguage, onLanguageChange, username, d
                                         <p className="text-xs text-gray-500 mt-3">Your location is used for regional agricultural insights.</p>
                                     </div>
                                 )}
+
+                                {/* SMS Alerts Offline Preferences */}
+                                <div className="mb-8 border-t border-white/10 pt-6">
+                                    <h4 className="text-lg font-bold mb-3 text-amber-400">Offline SMS Notification Alerts (Optional)</h4>
+                                    <p className="text-xs text-gray-400 mb-5 leading-relaxed">
+                                        Receive offline SMS text alerts containing hyper-local risk warnings (Drought, Pests, Floods) 
+                                        and eligibility alerts for newly active government schemes.
+                                    </p>
+                                    
+                                    <div className="grid grid-cols-1 gap-5">
+                                        <div>
+                                            <label className="block text-sm text-gray-400 mb-1.5 font-medium">Phone Number</label>
+                                            <input
+                                                type="text"
+                                                value={phone}
+                                                onChange={(e) => setPhone(e.target.value)}
+                                                placeholder="+91 98765 43210"
+                                                className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-[11px] text-white outline-none focus:border-amber-500/50 transition-colors placeholder-gray-600 text-sm font-semibold"
+                                            />
+                                        </div>
+                                        <div>
+                                            <div className="space-y-1">
+                                                <label className="block text-sm text-gray-400 mb-[4px] ml-1 font-medium">Alerts Interval (Cooldown)</label>
+                                                <select
+                                                    value={cooldownDays}
+                                                    onChange={(e) => setCooldownDays(Number(e.target.value))}
+                                                    className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-[13px] text-white outline-none focus:border-amber-500/50 transition-colors text-sm font-semibold cursor-pointer"
+                                                >
+                                                    {[1, 2, 3, 4, 5, 6, 7].map(d => (
+                                                        <option key={d} value={d} className="bg-[#111318] text-white">
+                                                            {d === 1 ? "Every 1 Day" : `Every ${d} Days`}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center pt-2 pl-1">
+                                            <label className="flex items-center gap-3 cursor-pointer select-none">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={smsEnabled}
+                                                    onChange={(e) => setSmsEnabled(e.target.checked)}
+                                                    disabled={!phone.trim()}
+                                                    className="w-5 h-5 rounded border-white/10 bg-black/40 text-amber-500 focus:ring-amber-500 focus:ring-opacity-25 focus:ring-offset-0 accent-amber-500 cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                                                />
+                                                <span className={`text-sm font-semibold ${!phone.trim() ? 'text-gray-600' : 'text-gray-300'}`}>
+                                                    Enable SMS Alerts
+                                                </span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                    {!phone.trim() && (
+                                        <p className="text-[11px] text-amber-500/80 mt-2 font-medium">
+                                            * Provide a phone number above to enable offline SMS notifications.
+                                        </p>
+                                    )}
+                                </div>
 
                                 <button
                                     onClick={handleSaveProfile}

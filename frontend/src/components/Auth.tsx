@@ -14,6 +14,7 @@ const Auth = ({ onLogin }: AuthProps) => {
     const [confirmPassword, setConfirmPassword] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
+    const [phoneNumber, setPhoneNumber] = useState('');
 
     // Visibility toggle states
     const [showPassword, setShowPassword] = useState(false);
@@ -39,7 +40,9 @@ const Auth = ({ onLogin }: AuthProps) => {
             body = { username: trimmedUsername, new_password: newPassword };
         } else {
             endpoint = isLogin ? '/api/auth/login' : '/api/auth/register';
-            body = { username: trimmedUsername, password };
+            body = isLogin 
+                ? { username: trimmedUsername, password } 
+                : { username: trimmedUsername, password, phone_number: phoneNumber.trim() || null };
         }
 
         try {
@@ -148,6 +151,19 @@ const Auth = ({ onLogin }: AuthProps) => {
                                 {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                             </button>
                         </div>
+                    </div>
+                )}
+
+                {!isLogin && !isReset && (
+                    <div>
+                        <label className="text-xs font-bold text-[#c0d0c0] uppercase tracking-wider mb-1.5 block">Phone Number (Optional)</label>
+                        <input
+                            type="text"
+                            value={phoneNumber}
+                            onChange={(e) => setPhoneNumber(e.target.value)}
+                            placeholder="+91 98765 43210"
+                            className="w-full bg-[#0D1F16]/60 border border-[#1A4731]/80 rounded-xl px-4 py-3 text-white focus:border-[#F5A623] focus:ring-1 focus:ring-[#F5A623] outline-none transition-all placeholder-[#5a6e5a] font-semibold text-sm"
+                        />
                     </div>
                 )}
 

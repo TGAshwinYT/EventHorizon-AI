@@ -54,6 +54,12 @@ python run.py
 * **Agmarknet API Mandi Rates**: Instantly queries live commodity prices across standard APMC market mandis nationwide.
 * **AI-Powered Market Forecasting**: Integrates state-of-the-art prediction models (Prophet/Scikit-Learn) to map standard 7-day commodity price trends on fully interactive UI charts.
 
+### 📱 6. Secure Offline SMS Alerting Pipeline
+* **Zero-Exposure Encrypted Phone Storage**: Farmer phone numbers are cryptographically shielded in the database using a zero-dependency SHA-256 derived stream cipher with random 8-byte salts.
+* **Session Asterisk Masking**: The backend automatically decrypts stored phone numbers and masks middle digits (e.g. `+91 ******3210`) before returning them to client browser sessions to prevent theft.
+* **Custom Anti-Spam Cooldown Limits**: Prevents notification fatigue by checking a custom rate-limiting threshold (configurable directly in Settings from **1 to 7 days**, default 7 days) before dispatching any message.
+* **Dual Dispatcher System**: Seamlessly integrates with the live **Twilio REST API** (supporting direct Sender Numbers or Messaging Service SIDs) with an automatic zero-cost developer **Local Sandbox fallback** that writes beautiful output logs in `backend/user_memory/sms_logs.txt`.
+
 ---
 
 ## 🛠️ Technology Stack
@@ -69,6 +75,7 @@ python run.py
 | **Transcription** | Groq Whisper | `whisper-large-v3` ultra-fast Indian language transcribing |
 | **Forecasting** | Prophet & Pandas | 7-day predictive curves for commodity pricing |
 | **Earth Observation**| Sentinel Hub API | Dynamic NDVI index metrics for agricultural zones |
+| **SMS Notification**| Twilio API / HTTP Fallback| Offline SMS alerts via Twilio Sender Numbers or Messaging Service SIDs |
 
 ---
 
@@ -207,6 +214,13 @@ SENTINELHUB_CLIENT_SECRET=your_sentinel_hub_client_secret_here
 
 # Voice Fallback synthesis
 SARVAM_API_KEY=your_sarvam_api_key_here  # Used for Bulbul v3 Indic voice fallbacks
+
+# Secure Twilio SMS Alerts
+TWILIO_ACCOUNT_SID=your_twilio_account_sid_here
+TWILIO_AUTH_TOKEN=your_twilio_auth_token_here
+TWILIO_PHONE_NUMBER=your_twilio_purchased_phone_number_here  # E.g., +1855XXXXXXX (Optional if Messaging Service SID is provided)
+TWILIO_MESSAGING_SERVICE_SID=your_twilio_messaging_service_sid_here  # E.g., MGcbe87e67e798d1bd10d654e644cb43de
+SMS_ENCRYPTION_KEY=generate_a_secure_symmetric_encryption_key_here  # Used for local stream cipher phone shielding
 ```
 
 ---
@@ -274,6 +288,12 @@ SARVAM_API_KEY=your_sarvam_api_key_here  # Used for Bulbul v3 Indic voice fallba
   * Synthesizes assistant responses. Automatically processes text using Gemini TTS with fallbacks routing directly to Sarvam AI Bulbul. Returns a binary WAV stream.
 * **`POST /api/page/analyze`**
   * Submits SPA swept layout data (DFS text chunks), returning a natural, localized summary of the page context.
+
+### 👤 Profile & SMS Preferences Services
+* **`GET /api/profile`**
+  * Fetches user profile specifications, automatically returning a masked phone representation (e.g. `+91 ******3210`).
+* **`PUT /api/profile`**
+  * Securely updates user information, incorporating toggling of SMS alerting preferences (`sms_alerts_enabled`), setting custom rate-limits (`sms_cooldown_days`), and writing plaintext phone numbers in their cryptographically shielded database representation.
 
 ### 🏛️ Government Schemes Explorer
 * **`GET /api/schemes`**

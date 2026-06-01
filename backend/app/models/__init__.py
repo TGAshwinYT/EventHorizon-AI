@@ -22,6 +22,12 @@ class User(AuthBase):
     crops = Column(Text, nullable=True) # Stored as comma-separated or JSON string
     alerts_enabled = Column(Integer, default=1) # 0=False, 1=True
     onboarding_completed = Column(Integer, default=0) # Using Integer as Boolean for SQLite compatibility (0=False, 1=True)
+    
+    # SMS Alerts Offline Preferences
+    phone_number = Column(String, nullable=True)
+    sms_alerts_enabled = Column(Integer, default=0) # 0=Disabled, 1=Enabled
+    sms_cooldown_days = Column(Integer, default=7) # Default to 7 days
+    last_sms_sent_at = Column(DateTime, nullable=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -1,8 +1,9 @@
-import { useState, useEffect, useRef } from 'react';
-import { ShieldAlert, Droplets, Bug, CloudRain, ArrowLeft, AlertTriangle, Loader2, TrendingUp, MapPin, Wifi, List, Play, Volume2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { ShieldAlert, Droplets, Bug, CloudRain, ArrowLeft, AlertTriangle, Loader2, TrendingUp, MapPin, Wifi, List } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import CustomSelect from './CustomSelect';
 import NdviCard from './NdviCard';
+import { useUserStore } from '../store/userStore';
 
 /* ────────────────────────────────────────────────────────────────────────── */
 /*  Types                                                                    */
@@ -90,50 +91,6 @@ export default function RiskDashboard({ onBack, currentLanguage, labels, default
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const [ttsState, setTtsState] = useState<'idle' | 'loading' | 'playing'>('idle');
-    const audioRef = useRef<HTMLAudioElement | null>(null);
-
-    const playTTS = async () => {
-        if (!data?.ai_advisory) return;
-        if (ttsState === 'playing') {
-            audioRef.current?.pause();
-            setTtsState('idle');
-            return;
-        }
-
-        setTtsState('loading');
-        try {
-            const token = sessionStorage.getItem('token');
-            const res = await fetch('/api/assistant/voice/tts', {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    ...(token ? { 'Authorization': `Bearer ${token}` } : {})
-                },
-                body: JSON.stringify({
-                    text: data.ai_advisory,
-                    language: currentLanguage || 'en'
-                })
-            });
-
-            if (!res.ok) throw new Error('TTS failed');
-            
-            const audioBlob = await res.blob();
-            const audioUrl = URL.createObjectURL(audioBlob);
-            const audio = new Audio(audioUrl);
-            audioRef.current = audio;
-            
-            audio.onplay = () => setTtsState('playing');
-            audio.onended = () => { setTtsState('idle'); URL.revokeObjectURL(audioUrl); };
-            audio.onerror = () => { setTtsState('idle'); URL.revokeObjectURL(audioUrl); };
-            
-            audio.play().catch(() => setTtsState('idle'));
-        } catch (err) {
-            console.error(err);
-            setTtsState('idle');
-            alert('Failed to play audio.');
-        }
-    };
 
     const states = Object.keys(locationTree).sort();
     const availableDistricts = selectedState ? (locationTree[selectedState] || []) : [];
@@ -246,6 +203,7 @@ export default function RiskDashboard({ onBack, currentLanguage, labels, default
                     const parsed = JSON.parse(cached);
                     setData(parsed);
                     setLoading(false);
+                    useUserStore.setState({ isPageLoading: false });
                     return;
                 }
             } catch (e) {
@@ -253,6 +211,12 @@ export default function RiskDashboard({ onBack, currentLanguage, labels, default
             }
 
             setLoading(true);
+            useUserStore.setState({ 
+                isPageLoading: true,
+                pageSummary: null,
+                pageKeyPoints: [],
+                pageSuggestedQuestions: []
+            });
             setError(null);
             try {
                 const payload: any = {
@@ -279,6 +243,7 @@ export default function RiskDashboard({ onBack, currentLanguage, labels, default
                 
                 if (!cancelled) {
                     setData(json);
+                    useUserStore.setState({ isPageLoading: false });
                     // Save to sessionStorage cache
                     try {
                         sessionStorage.setItem(cacheKey, JSON.stringify(json));
@@ -287,9 +252,15 @@ export default function RiskDashboard({ onBack, currentLanguage, labels, default
                     }
                 }
             } catch (err: any) {
-                if (!cancelled) setError(err.message || 'Failed to fetch risk data');
+                if (!cancelled) {
+                    setError(err.message || 'Failed to fetch risk data');
+                    useUserStore.setState({ isPageLoading: false });
+                }
             } finally {
-                if (!cancelled) setLoading(false);
+                if (!cancelled) {
+                    setLoading(false);
+                    useUserStore.setState({ isPageLoading: false });
+                }
             }
         };
         doFetch();
@@ -396,16 +367,16 @@ export default function RiskDashboard({ onBack, currentLanguage, labels, default
                 </div>
 
                 {/* ── Loading / Error ──────────────────────────── */}
-                {(loading || locationMethod === 'detecting') && !data && (
+                {(loading || locationMethod === 'detecting') && (
                     <div className="flex flex-col items-center justify-center py-32">
                         <Loader2 className="w-12 h-12 text-amber-400 animate-spin mb-4" />
                         <p className="text-gray-400 animate-pulse">
-                            {locationMethod === 'detecting' ? 'Detecting your location…' : 'Analyzing risk factors…'}
+                            {locationMethod === 'detecting' ? 'Detecting your location…' : 'Analyzing risk factors for the new place…'}
                         </p>
                     </div>
                 )}
 
-                {error && !data && (
+                {error && !loading && (
                     <div className="flex flex-col items-center justify-center py-32">
                         <AlertTriangle className="w-12 h-12 text-red-500 mb-4" />
                         <p className="text-gray-400">{error}</p>
@@ -413,7 +384,7 @@ export default function RiskDashboard({ onBack, currentLanguage, labels, default
                 )}
 
                 {/* ── Dashboard Content ────────────────────────── */}
-                {data && (
+                {data && !loading && locationMethod !== 'detecting' && (
                     <>
                         {/* Overall Risk + 3 Risk Gauges */}
                         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
@@ -531,7 +502,7 @@ export default function RiskDashboard({ onBack, currentLanguage, labels, default
                             
                             {/* Irrigation Schedule Calendar */}
                             {data.irrigation && (
-                                <div className="xl:col-span-2 bg-[#111318]/90 backdrop-blur-xl rounded-3xl border border-white/5 p-6 relative overflow-hidden">
+                                <div className="xl:col-span-3 bg-[#111318]/90 backdrop-blur-xl rounded-3xl border border-white/5 p-6 relative overflow-hidden">
                                     <div className="absolute inset-0 bg-gradient-to-b from-blue-500/[0.02] to-transparent pointer-events-none" />
                                     <div className="flex items-center gap-2 mb-6 relative z-10">
                                         <CloudRain className="w-5 h-5 text-blue-400" />
@@ -582,55 +553,6 @@ export default function RiskDashboard({ onBack, currentLanguage, labels, default
                                 </div>
                             )}
 
-                            {/* AI Advisory & SMS */}
-                            {data.ai_advisory && (
-                                <div className="xl:col-span-1 bg-[#111318]/90 backdrop-blur-xl rounded-3xl border border-white/5 p-6 relative overflow-hidden flex flex-col">
-                                    <div className="absolute inset-0 bg-gradient-to-b from-purple-500/[0.02] to-transparent pointer-events-none" />
-                                    <div className="flex items-center gap-2 mb-6 relative z-10">
-                                        <span className="text-xl">✨</span>
-                                        <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">AI Advisory</h3>
-                                    </div>
-                                    
-                                    <div className="flex-1 bg-white/5 rounded-2xl p-5 border border-white/5 relative z-10">
-                                        <p className="text-gray-300 text-sm leading-relaxed">{data.ai_advisory}</p>
-                                    </div>
-
-                                    <div className="flex gap-3 mt-4 relative z-10">
-                                        <button 
-                                            className={`flex-1 border rounded-xl py-3 text-sm font-bold flex items-center justify-center gap-2 transition-all ${
-                                                ttsState === 'playing' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
-                                                ttsState === 'loading' ? 'bg-purple-600/10 text-purple-400 border-purple-500/30 opacity-70' :
-                                                'bg-purple-600/20 hover:bg-purple-600/30 text-purple-400 border-purple-500/30'
-                                            }`}
-                                            onClick={playTTS}
-                                            disabled={ttsState === 'loading'}
-                                        >
-                                            {ttsState === 'loading' ? <Loader2 className="w-4 h-4 animate-spin" /> : 
-                                             ttsState === 'playing' ? <Volume2 className="w-4 h-4" /> : 
-                                             <Play className="w-4 h-4" />}
-                                            {ttsState === 'playing' ? 'Playing...' : 
-                                             ttsState === 'loading' ? 'Loading...' : 'Play Audio'}
-                                        </button>
-                                        <button 
-                                            className="flex-1 bg-white/5 hover:bg-white/10 text-gray-300 border border-white/10 rounded-xl py-3 text-sm font-bold flex items-center justify-center gap-2 transition-all"
-                                            onClick={async () => {
-                                                try {
-                                                    const smsRes = await fetch(`/api/harvestiq/advisory/sms?crop=${encodeURIComponent(selectedCrop)}&lat=${gpsCoords?.lat || 0}&lon=${gpsCoords?.lon || 0}&lang=${currentLanguage || 'en'}`);
-                                                    if(smsRes.ok) {
-                                                        const smsData = await smsRes.json();
-                                                        navigator.clipboard.writeText(smsData.sms_text);
-                                                        alert("SMS copied to clipboard:\n\n" + smsData.sms_text);
-                                                    }
-                                                } catch(e) {
-                                                    console.error(e);
-                                                }
-                                            }}
-                                        >
-                                            Copy SMS
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
                         </div>
                     </>
                 )}
