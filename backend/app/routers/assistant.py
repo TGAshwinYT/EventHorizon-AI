@@ -78,19 +78,21 @@ async def voice_stt(audio: UploadFile = File(...)):
 def voice_tts(data: TTSRequest):
     """
     POST /api/voice/tts
-    Convert text response to speech using native Gemini TTS modality, with Indic Parler TTS as fallback.
+    Convert text response to speech.
+    Primary: Gemini 3.1 Flash TTS (high-quality neural voice)
+    Fallback: Sarvam AI bulbul:v3 (free, excellent Indic voices)
     """
     try:
-        # Try primary Gemini multimodal TTS
+        # Tier 1: Primary — Gemini multimodal TTS (best quality)
         audio_content = gemini_service.generate_tts(text=data.text, language=data.language)
         
-        # Fallback to HF Indic Parler TTS if primary fails
+        # Tier 2: Fallback — Sarvam AI (free, Indic-native voices)
         if not audio_content:
-            print("[TTS FALLBACK TRIGGERED] Gemini TTS failed, falling back to Indic Parler TTS on HF...")
+            print("[TTS FALLBACK TRIGGERED] Gemini TTS failed, falling back to Sarvam AI bulbul:v3...")
             audio_content = tts_fallback_service.generate_speech(text=data.text, language=data.language)
             
         if not audio_content:
-            raise HTTPException(status_code=500, detail="TTS generation failed in both primary and fallback engines.")
+            raise HTTPException(status_code=500, detail="TTS generation failed in both Gemini and Sarvam AI engines.")
             
         # Return audio as binary stream
         return Response(content=audio_content, media_type="audio/wav")

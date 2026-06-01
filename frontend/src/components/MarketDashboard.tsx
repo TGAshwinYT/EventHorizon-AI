@@ -42,7 +42,6 @@ const MarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashboardPro
             audioRef.current.currentTime = 0;
             audioRef.current = null;
         }
-        window.speechSynthesis.cancel();
         setPlayingText(null);
     };
 
@@ -55,18 +54,19 @@ const MarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashboardPro
         setPlayingText(text);
 
         try {
-            const response = await fetch('/api/chat/tts', {
+            const response = await fetch('/api/assistant/voice/tts', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ text, language: currentLanguage })
             });
-            const data = await response.json();
-            if (data.audio_url) {
-                const audio = new Audio(data.audio_url);
-                audioRef.current = audio;
-                audio.onended = () => setPlayingText(null);
-                audio.play();
-            }
+            if (!response.ok) throw new Error('TTS failed');
+            const audioBlob = await response.blob();
+            const audioUrl = URL.createObjectURL(audioBlob);
+            const audio = new Audio(audioUrl);
+            audioRef.current = audio;
+            audio.onended = () => { setPlayingText(null); URL.revokeObjectURL(audioUrl); };
+            audio.onerror = () => { setPlayingText(null); URL.revokeObjectURL(audioUrl); };
+            audio.play();
         } catch (e) {
             console.error("TTS Error", e);
             setPlayingText(null);
@@ -901,13 +901,16 @@ const MarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashboardPro
         return matrix[b.length][a.length];
     };
 
-    const fuzzyMatch = (query: string, target: string, threshold: number = 3): boolean => {
-        const q = query.toLowerCase();
+    const fuzzyMatch = (query: string, target: string): boolean => {
+        const q = query.toLowerCase().trim();
         const t = target.toLowerCase();
+        if (!q) return true;
         if (t.includes(q)) return true;
-        // Check word-level fuzzy matching
+        // Only fuzzy match for queries >= 3 chars; adaptive threshold
+        if (q.length < 3) return false;
+        const threshold = Math.max(1, Math.floor(q.length / 3));
         const words = t.split(/\s+/);
-        return words.some(w => levenshteinDistance(q, w) <= threshold);
+        return words.some(w => w.length > 2 && levenshteinDistance(q, w) <= threshold);
     };
 
     // Scheme Categories
@@ -1024,7 +1027,7 @@ const MarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashboardPro
             benefit: { en: 'Loans up to ₹2 crore, 3% subvention', ta: '₹2 கோடி வரை கடன், 3% வட்டி மானியம்', hi: '₹2 करोड़ तक लोन, 3% ब्याज सबवेंशन', te: '₹2 కోట్ల వరకు లోన్, 3% వడ్డీ రాయితీ', kn: '₹2 ಕೋಟಿ ವರೆಗೆ ಸಾಲ, 3% ಬಡ್ಡಿ ಸಬ್ವೆನ್ಷನ್', ml: '₹2 കോടി വരെ ലോൺ, 3% പലിശ ആനുകൂല്യം', bn: '₹2 কোটি পর্যন্ত ঋণ, 3% সুদ ভর্তুকি', mr: '₹2 कोटींपर्यंत कर्ज, 3% व्याज सवलत' },
             applyLink: 'https://agriinfra.dac.gov.in',
             ytLink: 'https://www.youtube.com/results?search_query=Agriculture+Infrastructure+Fund+apply',
-            dateAdded: '2026-05-01',
+            dateAdded: '2026-06-01',
             name: { en: 'Agriculture Infrastructure Fund', ta: 'விவசாய உள்கட்டமைப்பு நிதி', hi: 'कृषि अवसंरचना कोष', te: 'వ్యవసాయ మౌలిక సదుపాయాల నిధి', kn: 'ಕೃಷಿ ಮೂಲಸೌಕರ್ಯ ನಿಧಿ', ml: 'കൃഷി ഇൻഫ്രാസ്ട്രക്ചർ ഫണ്ട്', bn: 'কৃষি পরিকাঠামো তহবিল', mr: 'कृषी पायाभूत सुविधा निधी' },
             details: { en: 'Fund for cold storage, warehouses, pack houses, sorting units with 3% interest subvention.', ta: 'குளிர்பதன கிடங்கு, கோடவ்ண்டகள் நிறுவ 3% வட்டி மானியத்துடன் நிதி.', hi: 'कोल्ड स्टोरेज, वेयरहाउस बनाने के लिए 3% ब्याज सब्वेंशन के साथ फंड।', te: 'కోల్డ్ స్టోరేజ్, వేర్‌హౌస్ నిర్మాణానికి 3% వడ్డీ రాయితీతో నిధి.', kn: 'ಶೀತಲ ಗೃಹ, ಗೋದಾಮು ನಿರ್ಮಾಣಕ್ಕೆ 3% ಬಡ್ಡಿ ಸಬ್ವೆನ್ಷನ್‌ ನಿಧಿ.', ml: 'ശീതകക്ഷ, ഗോഡൗൺ നിർമ്മാണത്തിന് 3% പലിശ ആനുകൂല്യം.', bn: 'কোল্ড স্টোরেজ, গুদাম নির্মাণে 3% সুদ ভর্তুকি তহবিল।', mr: 'शीतगृह, गोदाम उभारणीसाठी 3% व्याज सवलत निधी.' },
             eligibility: { en: 'FPOs, PACS, SHGs, farmers, startups', ta: 'FPO, PACS, SHG, விவசாயிகள்', hi: 'FPO, PACS, SHG, किसान, स्टार्टअप', te: 'FPO, PACS, SHG, రైతులు', kn: 'FPO, PACS, SHG, ರೈತರು', ml: 'FPO, PACS, SHG, കർഷകർ', bn: 'FPO, PACS, SHG, কৃষক', mr: 'FPO, PACS, SHG, शेतकरी' }
@@ -1101,6 +1104,26 @@ const MarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashboardPro
             }
         }
     }, [view]);
+
+    // Update document title dynamically based on active sub-view in Market Intelligence
+    useEffect(() => {
+        if (view === 'menu') {
+            document.title = `EventHorizon AI — Market Intelligence`;
+        } else {
+            const viewNames: { [key: string]: string } = {
+                rates: labels.rates || 'Mandi Rates',
+                vehicles: labels.vehicles || 'Agriculture Vehicles',
+                vehicle_details: labels.vehicles || 'Vehicle Details',
+                schemes: labels.schemes || 'Govt Schemes',
+                forecasting: labels.forecasting || 'Forecasting',
+                marketing: labels.marketing || 'Marketing & Success'
+            };
+            const activeView = viewNames[view] || view;
+            document.title = `EventHorizon AI — ${activeView}`;
+        }
+        // Dispatch location change event so hooks update active title instantly
+        window.dispatchEvent(new Event('popstate'));
+    }, [view, labels]);
 
     // AI Explainer handler
     const handleExplain = async (schemeId: string, schemeName: string, schemeDetails: string) => {
@@ -1220,8 +1243,9 @@ const MarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashboardPro
                     ))}
                 </div>
 
-                {/* Schemes Grid */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-4 overflow-y-auto custom-scrollbar">
+                {/* Schemes Grid — scrollable content area */}
+                <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-8">
                     {filteredIds.map(id => {
                         const s = centralSchemes[id];
                         const name = s.name[currentLanguage] || s.name['en'];
@@ -1234,9 +1258,9 @@ const MarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashboardPro
                         const isExplaining = explainerLoading === id;
 
                         return (
-                            <div key={id} className={`glass-panel p-5 rounded-2xl transition-all duration-300 cursor-pointer border ${isExpanded ? `${s.borderColor} bg-gradient-to-br ${s.color}` : 'border-white/5 hover:border-white/15 hover:bg-white/5'}`}>
+                            <div key={id} onClick={() => setExpandedSchemeId(isExpanded ? null : id)} className={`glass-panel p-5 rounded-2xl transition-all duration-300 cursor-pointer border ${isExpanded ? `${s.borderColor} bg-gradient-to-br ${s.color}` : 'border-white/5 hover:border-white/15 hover:bg-white/5'}`}>
                                 {/* Card Header */}
-                                <div className="flex items-start gap-3 mb-3" onClick={() => setExpandedSchemeId(isExpanded ? null : id)}>
+                                <div className="flex items-start gap-3 mb-3">
                                     <div className={`w-10 h-10 rounded-xl ${s.iconBg} flex items-center justify-center text-lg flex-shrink-0`}>
                                         {s.icon}
                                     </div>
@@ -1264,7 +1288,7 @@ const MarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashboardPro
 
                                 {/* Expanded Details */}
                                 {isExpanded && (
-                                    <div className="border-t border-white/10 pt-3 mt-1 space-y-3 animate-fade-in">
+                                    <div className="border-t border-white/10 pt-3 mt-1 space-y-3 animate-fade-in" onClick={(e) => e.stopPropagation()}>
                                         {/* Key Benefit */}
                                         <div className="flex gap-2 text-xs">
                                             <span className="text-gray-500 min-w-[80px]">{sLabels.benefit}</span>
@@ -1379,10 +1403,10 @@ const MarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashboardPro
                         </div>
                     ))}
                 </div>
-
-                {filteredIds.length === 0 && stateSchemes.length === 0 && (
+                {filteredIds.length === 0 && stateSchemes.length === 0 && !stateLoading && (
                     <div className="text-center text-gray-500 py-10 text-sm">No schemes found. Try a different search or category.</div>
                 )}
+                </div>
             </div>
         );
     };

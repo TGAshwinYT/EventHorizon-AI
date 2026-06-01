@@ -103,9 +103,8 @@ export default function RiskDashboard({ onBack, currentLanguage, labels, default
 
         setTtsState('loading');
         try {
-            // Check if token exists in sessionStorage (auth might not be strictly required for HarvestIQ, but TTS endpoint uses it)
             const token = sessionStorage.getItem('token');
-            const res = await fetch('/api/chat/tts', {
+            const res = await fetch('/api/assistant/voice/tts', {
                 method: 'POST',
                 headers: { 
                     'Content-Type': 'application/json',
@@ -119,19 +118,16 @@ export default function RiskDashboard({ onBack, currentLanguage, labels, default
 
             if (!res.ok) throw new Error('TTS failed');
             
-            const ttsData = await res.json();
-            if (ttsData.audio_url) {
-                const audio = new Audio(ttsData.audio_url);
-                audioRef.current = audio;
-                
-                audio.onplay = () => setTtsState('playing');
-                audio.onended = () => setTtsState('idle');
-                audio.onerror = () => setTtsState('idle');
-                
-                audio.play().catch(() => setTtsState('idle'));
-            } else {
-                setTtsState('idle');
-            }
+            const audioBlob = await res.blob();
+            const audioUrl = URL.createObjectURL(audioBlob);
+            const audio = new Audio(audioUrl);
+            audioRef.current = audio;
+            
+            audio.onplay = () => setTtsState('playing');
+            audio.onended = () => { setTtsState('idle'); URL.revokeObjectURL(audioUrl); };
+            audio.onerror = () => { setTtsState('idle'); URL.revokeObjectURL(audioUrl); };
+            
+            audio.play().catch(() => setTtsState('idle'));
         } catch (err) {
             console.error(err);
             setTtsState('idle');

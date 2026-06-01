@@ -65,6 +65,21 @@ function MobileApp() {
         }
     }, [token]);
 
+    // Update page title and notify page context analyzer on tab change on mobile
+    useEffect(() => {
+        const tabNames: { [key: string]: string } = {
+            agriculture: 'Market Intelligence',
+            scanner: 'Visual Scanner',
+            risk: 'Risk Assessment',
+            settings: 'Settings'
+        };
+        const activeName = tabNames[activeTab] || 'Dashboard';
+        document.title = `EventHorizon AI — ${activeName}`;
+        
+        // Dispatch location change event so SPA page context hooks pick it up instantly
+        window.dispatchEvent(new Event('popstate'));
+    }, [activeTab]);
+
     useEffect(() => {
         if (!token) return;
 
