@@ -391,7 +391,26 @@ export default function AssistantDrawer() {
 
                   <div className="flex gap-2 pt-1 relative z-10">
                     <button
-                      onClick={() => speakText(pageSummary || "")}
+                      onClick={() => {
+                        let fullSpeechText = pageSummary || "";
+                        if (pageKeyPoints && pageKeyPoints.length > 0) {
+                          const langTransitions: Record<string, string> = {
+                            en: "Here are the key insights: ",
+                            ta: "முக்கிய கருத்துக்கள்: ",
+                            hi: "मुख्य बातें: ",
+                            te: "ముఖ్యమైన విషయాలు: ",
+                            kn: "ಮುಖ್ಯ ಮಾಹಿತಿ: ",
+                            ml: "പ്രധാന വിവരങ്ങൾ: ",
+                            bn: "মূল তথ্যগুলি: ",
+                            mr: "मुख्य मुद्दे: ",
+                            gu: "મુખ્ય વિગતો: ",
+                            pa: "ਮੁੱਖ ਨੁਕਤੇ: "
+                          };
+                          const transition = langTransitions[activeLanguage] || langTransitions['en'];
+                          fullSpeechText += ". " + transition + " " + pageKeyPoints.join(". ");
+                        }
+                        speakText(fullSpeechText);
+                      }}
                       disabled={voiceLoading}
                       className={`flex-1 border rounded-lg py-1.5 text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
                         isSpeaking ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30 animate-pulse' :
