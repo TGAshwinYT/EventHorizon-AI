@@ -458,4 +458,4 @@ const MobileVisualScanner = ({ language, token, onBack }: VisualScannerProps) =>
   );
 };
 
-export default memo(VisualScanner);
+export default memo(MobileVisualScanner);

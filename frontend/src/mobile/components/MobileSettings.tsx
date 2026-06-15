@@ -479,4 +479,4 @@ const MobileSettings = ({ onBack, currentLanguage, onLanguageChange, username, d
     );
 };
 
-export default memo(Settings);
+export default memo(MobileSettings);
