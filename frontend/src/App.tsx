@@ -1,19 +1,21 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from 'react';
 import Sidebar from './components/Sidebar';
-import MarketDashboard from './components/MarketDashboard';
-import Settings from './components/Settings';
-import VisualScanner from './components/VisualScanner';
-import RiskDashboard from './components/RiskDashboard';
 import Auth from './components/Auth';
-import OnboardingFlow from './components/OnboardingFlow';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, Loader2 } from 'lucide-react';
 
-// New Voice Assistant integrations
+// Lazy-loaded tab components — only fetched when the user navigates to them
+const MarketDashboard = lazy(() => import('./components/MarketDashboard'));
+const Settings = lazy(() => import('./components/Settings'));
+const VisualScanner = lazy(() => import('./components/VisualScanner'));
+const RiskDashboard = lazy(() => import('./components/RiskDashboard'));
+const AgriDashboard = lazy(() => import('./components/AgriDashboard'));
+const OnboardingFlow = lazy(() => import('./components/OnboardingFlow'));
+const AssistantDrawer = lazy(() => import('./components/AssistantDrawer'));
+
+// Small, always-visible components — kept as static imports
 import { useUserStore } from './store/userStore';
 import FloatingAssistant from './components/FloatingAssistant';
-import AssistantDrawer from './components/AssistantDrawer';
 import WakeWord from './components/WakeWord';
-import PageContextBanner from './components/PageContextBanner';
 import AlertBell from './components/AlertBell';
 
 interface ProfileUpdate {
@@ -33,9 +35,11 @@ function App() {
     const [userLocation, setUserLocation] = useState<{state: string, district: string, mandal: string} | null>(null);
 
     // Persistent language change
-    const handleLanguageChange = (newLang: string) => {
+    const handleLanguageChange = useCallback((newLang: string) => {
         setLanguage(newLang);
         localStorage.setItem('language', newLang);
+        localStorage.setItem('event_horizon_lang', newLang);
+        useUserStore.getState().setActiveLanguage(newLang);
         if (token) {
             fetch('/api/auth/profile', {
                 method: 'PUT',
@@ -46,9 +50,15 @@ function App() {
                 body: JSON.stringify({ language: newLang })
             }).catch(console.error);
         }
-    };
+    }, [token]);
+    const handleBackToDashboard = useCallback(() => setActiveTab('dashboard'), []);
+    const handleMoreDetails = useCallback(() => {
+        setActiveTab('risk');
+    }, []);
+
     const [connectionError] = useState(false);
-    const [activeTab, setActiveTab] = useState<'agriculture' | 'scanner' | 'risk' | 'settings'>('risk');
+    const [activeTab, setActiveTab] = useState<'dashboard' | 'agriculture' | 'scanner' | 'risk' | 'settings'>('dashboard');
+    const [agriSubView, setAgriSubView] = useState<'menu' | 'rates' | 'vehicles' | 'vehicle_details' | 'schemes' | 'forecasting' | 'marketing'>('menu');
 
     const setStoreToken = useUserStore((state) => state.setToken);
     const fetchProfile = useUserStore((state) => state.fetchProfile);
@@ -88,6 +98,7 @@ function App() {
     // Update page title and notify page context analyzer on tab change
     useEffect(() => {
         const tabNames: { [key: string]: string } = {
+            dashboard: 'Dashboard',
             agriculture: 'Market Intelligence',
             scanner: 'Visual Scanner',
             risk: 'Risk Assessment',
@@ -160,7 +171,7 @@ function App() {
         setStoreToken(newToken);
     };
 
-    const handleLogout = () => {
+    const handleLogout = useCallback(() => {
         sessionStorage.removeItem('token');
         sessionStorage.removeItem('username');
         sessionStorage.removeItem('display_name');
@@ -170,7 +181,25 @@ function App() {
         setDisplayName(null);
         setAvatarUrl(null);
         setStoreToken(null);
-    };
+    }, [setStoreToken]);
+
+    const handleUpdateProfile = useCallback(async (updates: ProfileUpdate) => {
+        if (updates.displayName !== undefined) {
+            setDisplayName(updates.displayName);
+            sessionStorage.setItem('display_name', updates.displayName);
+        }
+        if (updates.avatarUrl !== undefined) {
+            setAvatarUrl(updates.avatarUrl);
+            try {
+                sessionStorage.setItem('avatar_url', updates.avatarUrl);
+            } catch (e) {
+                // Silently handle quota exceeded
+            }
+        }
+        if (updates.location !== undefined) {
+            setUserLocation(updates.location);
+        }
+    }, []);
 
     // Localization for UI status messages & Navigation
     const uiStrings: { [key: string]: any } = {
@@ -305,6 +334,14 @@ function App() {
 
     const currentUI = uiStrings[language] || uiStrings['en'];
 
+    const sidebarLabels = useMemo(() => ({
+        dashboard: currentUI.dashboard || 'Dashboard',
+        agriculture: currentUI.agriculture,
+        scanner: currentUI.scanner || 'Scan',
+        risk: currentUI.risk || 'Risk',
+        settings: currentUI.settings
+    }), [currentUI]);
+
 
 
 
@@ -319,6 +356,19 @@ function App() {
         );
     }
 
+    if (token && onboardingCompleted === null) {
+        return (
+            <div className="flex h-screen w-full bg-[#0D1F16] bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-[#1A4731] via-[#0D1F16] to-[#050B08] items-center justify-center relative overflow-hidden">
+                <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-[#F5A623]/10 rounded-full blur-[100px] pointer-events-none" />
+                <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-[#4A90D9]/10 rounded-full blur-[100px] pointer-events-none" />
+                <div className="flex flex-col items-center gap-4">
+                    <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-[#F5A623]"></div>
+                    <div className="text-white/70 font-medium">Loading Horizon Profile...</div>
+                </div>
+            </div>
+        );
+    }
+
     if (token && onboardingCompleted === false) {
         return (
             <OnboardingFlow 
@@ -326,7 +376,10 @@ function App() {
                     setOnboardingCompleted(true);
                     fetchProfile().then(prof => {
                         if (prof) {
-                            setLanguage(prof.language || 'en');
+                            const userLang = prof.language || 'en';
+                            setLanguage(userLang);
+                            localStorage.setItem('language', userLang);
+                            localStorage.setItem('event_horizon_lang', userLang);
                             setUserLocation({
                                 state: prof.state || '',
                                 district: prof.district || '',
@@ -343,17 +396,15 @@ function App() {
         <div className="flex h-screen w-full bg-slate-950 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-slate-950 to-black text-slate-50 font-sans overflow-hidden antialiased">
             <Sidebar
                 activeTab={activeTab}
-                setActiveTab={(tab: any) => setActiveTab(tab)}
-                labels={{
-                    agriculture: currentUI.agriculture,
-                    scanner: currentUI.scanner || 'Scan',
-                    risk: currentUI.risk || 'Risk',
-                    settings: currentUI.settings
+                setActiveTab={(tab) => {
+                    setActiveTab(tab);
+                    setAgriSubView('menu');
                 }}
+                labels={sidebarLabels}
             />
 
-            <main className="flex-1 flex flex-col relative">
-                <header className="absolute top-6 w-full px-8 flex justify-between items-center z-10">
+            <main className="flex-1 flex flex-col relative overflow-hidden">
+                <header className="absolute top-6 w-full px-8 flex justify-between items-center z-40" style={{ transform: 'translateZ(0)' }}>
                     <div className="flex items-center gap-3 pointer-events-none">
                         <img src="/logo.png" alt="Logo" className="w-10 h-10 rounded-full" />
                         <div className="text-xl font-semibold text-white/50">EventHorizon <span className="text-gray-500 font-normal">AI</span></div>
@@ -371,15 +422,28 @@ function App() {
                     </div>
                 )}
 
-                {activeTab === 'scanner' ? (
+                <Suspense fallback={
+                    <div className="flex-1 flex items-center justify-center">
+                        <Loader2 className="w-10 h-10 text-emerald-400 animate-spin" />
+                    </div>
+                }>
+                {activeTab === 'dashboard' ? (
+                    <AgriDashboard
+                        currentLanguage={language}
+                        userLocation={userLocation}
+                        setActiveTab={setActiveTab}
+                        setAgriSubView={setAgriSubView}
+                        token={token}
+                    />
+                ) : activeTab === 'scanner' ? (
                     <VisualScanner
                         language={language}
                         token={token}
-                        onBack={() => setActiveTab('risk')}
+                        onBack={handleBackToDashboard}
                     />
                 ) : activeTab === 'risk' ? (
                     <RiskDashboard
-                        onBack={() => {}}
+                        onBack={handleBackToDashboard}
                         currentLanguage={language}
                         labels={currentUI}
                         defaultState={userLocation?.state}
@@ -387,16 +451,15 @@ function App() {
                     />
                 ) : activeTab === 'agriculture' ? (
                     <MarketDashboard
-                        onBack={() => {}}
+                        onBack={handleBackToDashboard}
                         currentLanguage={language}
                         labels={currentUI}
-                        onMoreDetails={() => {
-                            setActiveTab('risk');
-                        }}
+                        onMoreDetails={handleMoreDetails}
+                        initialView={agriSubView}
                     />
                 ) : (
                     <Settings
-                        onBack={() => {}}
+                        onBack={handleBackToDashboard}
                         currentLanguage={language}
                         onLanguageChange={handleLanguageChange}
                         username={username}
@@ -404,31 +467,16 @@ function App() {
                         avatarUrl={avatarUrl}
                         token={token}
                         userLocation={userLocation}
-                        onUpdateProfile={async (updates: ProfileUpdate) => {
-                            if (updates.displayName !== undefined) {
-                                setDisplayName(updates.displayName);
-                                sessionStorage.setItem('display_name', updates.displayName);
-                            }
-                            if (updates.avatarUrl !== undefined) {
-                                setAvatarUrl(updates.avatarUrl);
-                                try {
-                                    sessionStorage.setItem('avatar_url', updates.avatarUrl);
-                                } catch (e) {
-                                    // Silently handle quota exceeded
-                                }
-                            }
-                            if (updates.location !== undefined) {
-                                setUserLocation(updates.location);
-                            }
-                        }}
+                        onUpdateProfile={handleUpdateProfile}
                         onLogout={handleLogout}
                     />
                 )}
-
-                <PageContextBanner />
+                </Suspense>
 
                 <FloatingAssistant />
-                <AssistantDrawer />
+                <Suspense fallback={null}>
+                    <AssistantDrawer />
+                </Suspense>
 
                 <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-primary/10 rounded-full blur-[100px] pointer-events-none" />
                 <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-secondary/10 rounded-full blur-[100px] pointer-events-none" />

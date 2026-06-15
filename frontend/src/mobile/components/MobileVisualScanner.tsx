@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, memo, useMemo } from 'react';
 import { Camera, Image, Search, Leaf, ArrowLeft, X, RotateCcw, Volume2, ExternalLink, ShieldCheck, AlertTriangle } from 'lucide-react';
 
 interface DiagnosisResult {
@@ -85,7 +85,7 @@ const MobileVisualScanner = ({ language, token, onBack }: VisualScannerProps) =>
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  const L = LABELS[language] || LABELS['en'];
+  const L = useMemo(() => LABELS[language] || LABELS['en'], [language]);
 
   // Cleanup camera stream on unmount
   useEffect(() => {
@@ -458,4 +458,4 @@ const MobileVisualScanner = ({ language, token, onBack }: VisualScannerProps) =>
   );
 };
 
-export default MobileVisualScanner;
+export default memo(VisualScanner);

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo, useMemo } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { Loader2, TrendingUp, AlertTriangle } from 'lucide-react';
 
@@ -16,7 +16,7 @@ interface MandiForecastingProps {
     labels?: any;
 }
 
-const MandiForecasting = ({ crop, state, labels }: MandiForecastingProps) => {
+const MandiForecasting = memo(({ crop, state, labels }: MandiForecastingProps) => {
     const [data, setData] = useState<ForecastData[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -57,6 +57,34 @@ const MandiForecasting = ({ crop, state, labels }: MandiForecastingProps) => {
         }
     }, [crop, state]);
 
+    // IMPORTANT: All hooks MUST be called before any early returns (React Rules of Hooks)
+    const { chartData, minPrice, maxPrice, latestHistory } = useMemo(() => {
+        if (data.length === 0) {
+            return { chartData: [] as any[], minPrice: 0, maxPrice: 0, latestHistory: null as ForecastData | null };
+        }
+        const historyData = data.filter(d => !d.isForecast);
+        const latest = historyData.length > 0 ? historyData[historyData.length - 1] : null;
+        const prices = data.map(d => d.price);
+        const min = Math.max(0, Math.min(...prices) * 0.9);
+        const max = Math.max(...prices) * 1.1;
+
+        // Create a unified data structure for the chart
+        const chart = data.map(item => ({
+            ...item,
+            historyPrice: !item.isForecast ? item.price : null,
+            forecastPrice: item.isForecast ? item.price : (latest && item.date === latest.date ? item.price : null)
+        }));
+
+        // If we have history, the first point of forecast should be the last point of history
+        if (latest) {
+            const lastHistoryIndex = chart.findIndex(d => d.date === latest.date && !d.isForecast);
+            if (lastHistoryIndex !== -1) {
+                chart[lastHistoryIndex].forecastPrice = latest.price;
+            }
+        }
+        return { chartData: chart, minPrice: min, maxPrice: max, latestHistory: latest };
+    }, [data]);
+
     if (loading) {
         return (
             <div className="flex flex-col items-center justify-center h-64 w-full bg-[#1A1B23] rounded-2xl border border-white/5">
@@ -82,27 +110,6 @@ const MandiForecasting = ({ crop, state, labels }: MandiForecastingProps) => {
                 <p className="text-gray-500">Not enough historical data to generate a forecast.</p>
             </div>
         );
-    }
-
-    const historyData = data.filter(d => !d.isForecast);
-    const latestHistory = historyData.length > 0 ? historyData[historyData.length - 1] : null;
-    const prices = data.map(d => d.price);
-    const minPrice = Math.max(0, Math.min(...prices) * 0.9);
-    const maxPrice = Math.max(...prices) * 1.1;
-
-    // Create a unified data structure for the chart
-    const chartData = data.map(item => ({
-        ...item,
-        historyPrice: !item.isForecast ? item.price : null,
-        forecastPrice: item.isForecast ? item.price : (latestHistory && item.date === latestHistory.date ? item.price : null)
-    }));
-
-    // If we have history, the first point of forecast should be the last point of history
-    if (latestHistory) {
-        const lastHistoryIndex = chartData.findIndex(d => d.date === latestHistory.date && !d.isForecast);
-        if (lastHistoryIndex !== -1) {
-            chartData[lastHistoryIndex].forecastPrice = latestHistory.price;
-        }
     }
 
     // Custom Tooltip
@@ -229,6 +236,6 @@ const MandiForecasting = ({ crop, state, labels }: MandiForecastingProps) => {
             </div>
         </div>
     );
-};
+});
 
 export default MandiForecasting;

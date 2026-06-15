@@ -269,6 +269,13 @@ def delete_profile(authorization: str = Header(None)):
             db.close()
             raise HTTPException(status_code=404, detail="User not found")
             
+        # Delete related chat_history records first due to foreign key constraints in database
+        from sqlalchemy import text
+        try:
+            db.execute(text("DELETE FROM chat_history WHERE user_id = :user_id"), {"user_id": user.id})
+        except Exception as db_err:
+            print(f"[PROFILE DELETE] Warning deleting chat_history: {db_err}")
+            
         db.delete(user)
         db.commit()
         db.close()
@@ -279,3 +286,124 @@ def delete_profile(authorization: str = Header(None)):
     except Exception as e:
         print(f"[PROFILE DELETE ERROR] {e}")
         raise HTTPException(status_code=500, detail="Failed to delete profile")
+
+@router.get('/notifications')
+async def get_live_notifications(authorization: str = Header(None)):
+    if not authorization or not authorization.startswith("Bearer "):
+         raise HTTPException(status_code=401, detail="Unauthorized")
+         
+    try:
+        from app.auth import decode_access_token
+        token = authorization.split(" ")[1]
+        payload = decode_access_token(token)
+        if not payload:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        username = payload.get("sub")
+        
+        db: Session = AuthSessionLocal()
+        user = db.query(User).filter(User.username == username).first()
+        if not user:
+            db.close()
+            raise HTTPException(status_code=404, detail="User not found")
+            
+        user_state = user.state or "Tamil Nadu"
+        user_district = user.district or "Erode"
+        user_mandal = user.mandal or ""
+        user_crops = [c.strip() for c in user.crops.split(",")] if user.crops else ["Rice"]
+        db.close()
+        
+        notifications = []
+        notif_id = 1
+        
+        # 1. Fetch live weather & pest risk parameters to generate true notifications
+        try:
+            from app.services.geocoding import get_coords_with_place
+            lat, lon = await get_coords_with_place(user_state, user_district, user_mandal)
+            if lat is None or lon is None:
+                lat, lon = 11.341, 77.717
+                
+            import os
+            import httpx
+            from app.services.risk_assessment_service import compute_risk_assessment
+            
+            api_key = os.getenv("OPENWEATHERMAP_API_KEY", "")
+            
+            location_label = f"{user_mandal}, {user_district}, {user_state}" if user_mandal else f"{user_district}, {user_state}"
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                assessment = await compute_risk_assessment(
+                    lat=lat,
+                    lon=lon,
+                    crop=user_crops[0],
+                    location_label=location_label,
+                    api_key=api_key,
+                    client=client
+                )
+            
+            # Add Weather alert if rain is predicted
+            rain_total = sum(day.get("rain_mm", 0.0) for day in assessment.get("weather_forecast", []))
+            display_loc = user_mandal or user_district
+            if rain_total > 5.0:
+                notifications.append({
+                    "id": notif_id,
+                    "type": "weather",
+                    "text": f"Rain alert: {rain_total:.1f}mm rain expected in {display_loc} over next 5 days. Postpone immediate fertilizer sprays.",
+                    "date": "Today"
+                })
+                notif_id += 1
+                
+            # Add Pest alert if pest risk is High or Critical
+            pest_risk = assessment.get("risks", {}).get("pest", {})
+            pest_label = pest_risk.get("label", "Low")
+            if pest_label in ["High", "Critical"]:
+                notifications.append({
+                    "id": notif_id,
+                    "type": "alert",
+                    "text": f"High pest threat warning for {user_crops[0]} in {display_loc}. Inspect crops daily and prepare neem oil preventive sprays.",
+                    "date": "Today"
+                })
+                notif_id += 1
+                
+        except Exception as e:
+            print(f"[Notifications Weather Error] {e}")
+            
+        # 2. Fetch live Mandi rates to check for price surge notifications
+        try:
+            from app.database import MandiSessionLocal
+            from sqlalchemy import text
+            mandi_db = MandiSessionLocal()
+            
+            fetch_crop = "Paddy(Dhan)(Common)" if user_crops[0] == "Rice" else user_crops[0]
+            sql = """
+                SELECT market, modal_price, arrival_date 
+                FROM mandi_prices 
+                WHERE state = :state AND commodity = :crop 
+                ORDER BY arrival_date DESC LIMIT 2
+            """
+            result = mandi_db.execute(text(sql), {"state": user_state, "crop": fetch_crop}).fetchall()
+            mandi_db.close()
+            
+            if result and len(result) >= 1:
+                market = result[0][0]
+                price = int(result[0][1])
+                notifications.append({
+                    "id": notif_id,
+                    "type": "price",
+                    "text": f"Mandi rate alert: {user_crops[0]} price is ₹{price:,}/quintal in {market} market.",
+                    "date": "Today" if len(notifications) == 0 else "Yesterday"
+                })
+                notif_id += 1
+        except Exception as e:
+            print(f"[Notifications Mandi Error] {e}")
+            
+        # 3. Default fallbacks if no alerts generated
+        if not notifications:
+            notifications = [
+                { "id": 1, "type": "alert", "text": f"Scout fields regularly for {user_crops[0]} crop wellness.", "date": "Today" },
+                { "id": 2, "type": "weather", "text": f"Plan irrigation cycle based on {user_district} forecast report.", "date": "Yesterday" }
+            ]
+            
+        return notifications
+    except Exception as e:
+        print(f"[LIVE NOTIFICATIONS ERROR] {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch notifications")
+

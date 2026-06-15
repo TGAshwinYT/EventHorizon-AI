@@ -1,13 +1,17 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, memo, useCallback, useMemo } from 'react';
 import { Search, TrendingUp, ArrowLeft, Loader2, BookOpen, Truck, Landmark, BarChart3, Volume2, StopCircle, Youtube, User, ExternalLink } from 'lucide-react';
 import MandiInterface from '../../components/MandiInterface';
 import ForecastingInterface from '../../components/ForecastingInterface';
+import { assistantApi } from '../../services/api';
+import { centralSchemes, schemeLabels } from '../../utils/schemesData';
+
 
 interface MarketDashboardProps {
     onBack: () => void;
     currentLanguage: string;
     labels: any;
     onMoreDetails?: (query: string) => void;
+    initialView?: 'menu' | 'rates' | 'vehicles' | 'vehicle_details' | 'schemes' | 'forecasting' | 'marketing';
 }
 
 type View = 'menu' | 'rates' | 'vehicles' | 'vehicle_details' | 'schemes' | 'forecasting' | 'marketing';
@@ -19,148 +23,7 @@ interface Story {
     image_prompt?: string;
 }
 
-const MobileMarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashboardProps) => {
-    const [view, setView] = useState<View>('menu');
-    const [searchTerm, setSearchTerm] = useState('');
-    const [isLoading, setIsLoading] = useState(false);
-    const [selectedVehicleIndex, setSelectedVehicleIndex] = useState<number | null>(null);
 
-    // Data State
-
-    // Marketing stories are dynamic
-    const [stories, setStories] = useState<Story[]>([]);
-
-
-
-    // Audio State
-    const audioRef = useRef<HTMLAudioElement | null>(null);
-    const [playingText, setPlayingText] = useState<string | null>(null);
-
-    const stopAudio = () => {
-        if (audioRef.current) {
-            audioRef.current.pause();
-            audioRef.current.currentTime = 0;
-            audioRef.current = null;
-        }
-        setPlayingText(null);
-    };
-
-    const playTTS = async (text: string) => {
-        if (playingText === text) {
-            stopAudio();
-            return;
-        }
-        stopAudio();
-        setPlayingText(text);
-
-        try {
-            const response = await fetch('/api/assistant/voice/tts', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text, language: currentLanguage })
-            });
-            if (!response.ok) throw new Error('TTS failed');
-            const audioBlob = await response.blob();
-            const audioUrl = URL.createObjectURL(audioBlob);
-            const audio = new Audio(audioUrl);
-            audioRef.current = audio;
-            audio.onended = () => { setPlayingText(null); URL.revokeObjectURL(audioUrl); };
-            audio.onerror = () => { setPlayingText(null); URL.revokeObjectURL(audioUrl); };
-            audio.play();
-        } catch (e) {
-            console.error("TTS Error", e);
-            setPlayingText(null);
-        }
-    };
-
-    const fetchGeneric = async (type: string, topic: string) => {
-        setIsLoading(true);
-        try {
-            const response = await fetch('/api/chat/generate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ topic, type, language: currentLanguage })
-            });
-            const data = await response.json();
-            return data;
-        } catch (e) {
-            console.error(`Failed to fetch ${type}`, e);
-            return null;
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    // Load initial marketing stories
-    useEffect(() => {
-        if (view === 'marketing' && stories.length === 0) {
-            fetchGeneric('marketing', 'Sustainable Farming').then(data => {
-                if (data && Array.isArray(data)) setStories(data);
-            });
-        }
-    }, [view]);
-
-
-    const handleSearchMarketing = () => {
-        if (!searchTerm.trim()) return;
-        setStories([]);
-        fetchGeneric('marketing', searchTerm).then(data => {
-            if (data && Array.isArray(data)) setStories(data);
-        });
-    };
-
-    const renderMenu = () => (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-fade-in pb-8">
-            <div onClick={() => setView('rates')} className="glass-panel p-6 rounded-3xl cursor-pointer hover:bg-white/10 transition-all border-emerald-500/20 group">
-                <TrendingUp className="w-10 h-10 text-emerald-400 mb-4 group-hover:scale-110 transition-transform" />
-                <h3 className="text-xl font-bold mb-2">{labels.rates}</h3>
-                <p className="text-gray-400 text-sm">{labels.ratesDesc || "Check daily market prices for crops in your mandi."}</p>
-            </div>
-
-
-
-            <div onClick={() => setView('schemes')} className="glass-panel p-6 rounded-3xl cursor-pointer hover:bg-white/10 transition-all border-amber-500/20 group">
-                <Landmark className="w-10 h-10 text-amber-400 mb-4 group-hover:scale-110 transition-transform" />
-                <h3 className="text-xl font-bold mb-2">{labels.schemes}</h3>
-                <p className="text-gray-400 text-sm">{labels.schemesDesc || "Central and State schemes for subsidies and loans."}</p>
-            </div>
-
-            <div onClick={() => setView('marketing')} className="glass-panel p-6 rounded-3xl cursor-pointer hover:bg-white/10 transition-all border-pink-500/20 group">
-                <BarChart3 className="w-10 h-10 text-pink-400 mb-4 group-hover:scale-110 transition-transform" />
-                <h3 className="text-xl font-bold mb-2">{labels.marketing}</h3>
-                <p className="text-gray-400 text-sm">{labels.marketingDesc || "Success stories, bloggers, and selling strategies."}</p>
-            </div>
-
-            <div onClick={() => setView('forecasting')} className="glass-panel p-6 rounded-3xl cursor-pointer hover:bg-white/10 transition-all border-purple-500/20 group">
-                <BookOpen className="w-10 h-10 text-purple-400 mb-4 group-hover:scale-110 transition-transform" />
-                <h3 className="text-xl font-bold mb-2">{labels.forecasting || "Forecasting"}</h3>
-                <p className="text-gray-400 text-sm">{labels.forecastingDesc || "7-day AI predictions for crop market prices."}</p>
-            </div>
-        </div>
-    );
-
-    const renderSearchBar = (placeholder: string, onSearch: () => void) => (
-        <div className="flex gap-4 mb-6">
-            <div className="flex-1 relative">
-                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
-                <input
-                    type="text"
-                    placeholder={placeholder}
-                    className="w-full bg-black/20 border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-white focus:outline-none focus:border-emerald-500/50 transition-colors"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    onKeyPress={(e) => e.key === 'Enter' && onSearch()}
-                />
-            </div>
-            <button
-                onClick={onSearch}
-                disabled={isLoading}
-                className="px-8 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold rounded-2xl transition-colors flex items-center gap-2"
-            >
-                {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Search"}
-            </button>
-        </div>
-    );
 
     // Vehicle Translations
     const vehicleTranslations: { [key: string]: any[] } = {
@@ -859,7 +722,6 @@ const MobileMarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashbo
         ],
     };
 
-    const staticVehicles = vehicleTranslations[currentLanguage] || vehicleTranslations['en'];
 
     const vehicleLabels: { [key: string]: { specs: string, desc: string, visit: string, back: string } } = {
         en: { specs: 'Specifications', desc: 'Description', visit: 'Visit Official Page', back: 'Back' },
@@ -873,14 +735,11 @@ const MobileMarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashbo
         gu: { specs: 'વિશિષ્ટતાઓ', desc: 'વર્ણન', visit: 'સત્તાવાર પૃષ્ઠની મુલાકાત લો', back: 'પાછા' }
     };
 
-    const vLabels = vehicleLabels[currentLanguage] || vehicleLabels['en'];
-
-    // ========== GOVERNMENT SCHEMES — AI-Powered Dynamic Engine ==========
-    // DSA: O(1) Keyed Hash-Map for instant translation lookups by scheme id + language
     
     // Levenshtein Distance — Fuzzy Search Algorithm (DSA: Dynamic Programming)
     // Allows farmers to find schemes even with typos in their search queries.
     // Time Complexity: O(m*n) where m,n are string lengths
+    // Imported government schemes data and labels
     const levenshteinDistance = (a: string, b: string): number => {
         const matrix: number[][] = [];
         for (let i = 0; i <= b.length; i++) matrix[i] = [i];
@@ -913,29 +772,11 @@ const MobileMarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashbo
         return words.some(w => w.length > 2 && levenshteinDistance(q, w) <= threshold);
     };
 
-    // Scheme Categories
-    const schemeCategories = ['All', 'Income Support', 'Insurance', 'Credit', 'Market Access', 'Irrigation', 'Infrastructure', 'Organic Farming', 'Mechanisation'];
-    const [activeCategory, setActiveCategory] = useState('All');
-    const [expandedSchemeId, setExpandedSchemeId] = useState<string | null>(null);
-    const [schemeSearchTerm, setSchemeSearchTerm] = useState('');
-
-    // State Schemes (AI-generated)
-    const [stateSchemes, setStateSchemes] = useState<any[]>([]);
-    const [stateLoading, setStateLoading] = useState(false);
-
-    // AI Explainer State
-    const [explainerData, setExplainerData] = useState<{ [key: string]: any }>({});
-    const [explainerLoading, setExplainerLoading] = useState<string | null>(null);
-
-    // Eligibility Checker State
-    const [eligibilitySchemeId, setEligibilitySchemeId] = useState<string | null>(null);
-    const [eligibilityForm, setEligibilityForm] = useState({ landSize: '', category: 'General', income: '' });
-    const [eligibilityResult, setEligibilityResult] = useState<{ [key: string]: any }>({});
-    const [eligibilityLoading, setEligibilityLoading] = useState(false);
 
     // Central Government Schemes — O(1) Hash-Map keyed by scheme ID
     // Each scheme has multilingual translations for all 8 supported languages
-    const centralSchemes: { [id: string]: any } = {
+    // @ts-ignore
+    const _localCentralSchemes: { [id: string]: any } = {
         'pm-kisan': {
             id: 'pm-kisan',
             icon: '💰',
@@ -1066,16 +907,261 @@ const MobileMarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashbo
         }
     };
 
+
+    // UI Labels for schemes section
+    // @ts-ignore
+    const _localSchemeLabels: { [key: string]: any } = {
+        en: { newBanner: 'new schemes added this month', search: 'Search schemes...', askHorizon: 'Ask Horizon', eligible: 'Am I Eligible?', stateSchemes: 'State Schemes', benefit: 'Key Benefit', docs: 'Documents Needed', steps: 'How to Apply', timeline: 'Timeline', tip: 'Pro Tip', checkEligibility: 'Check', land: 'Land (acres)', income: 'Income (₹/yr)', category: 'Category', for: 'For' },
+        ta: { newBanner: 'புதிய திட்டங்கள் இந்த மாதம் சேர்க்கப்பட்டன', search: 'திட்டங்களை தேடு...', askHorizon: 'ஹொரிசனிடம் கேள்', eligible: 'நான் தகுதியா?', stateSchemes: 'மாநில திட்டங்கள்', benefit: 'முக்கிய பலன்', docs: 'தேவையான ஆவணங்கள்', steps: 'எப்படி விண்ணப்பிக்கலாம்', timeline: 'காலக்கெடு', tip: 'ப்ரோ டிப்', checkEligibility: 'சரிபார்', land: 'நிலம் (ஏக்கர்)', income: 'வருமானம் (₹/ஆ)', category: 'பிரிவு', for: 'யாருக்கு' },
+        hi: { newBanner: 'नई योजनाएं इस महीने जोड़ी गईं', search: 'योजना खोजें...', askHorizon: 'होराइज़न से पूछें', eligible: 'क्या मैं योग्य हूं?', stateSchemes: 'राज्य योजनाएं', benefit: 'मुख्य लाभ', docs: 'आवश्यक दस्तावेज', steps: 'आवेदन कैसे करें', timeline: 'समयसीमा', tip: 'प्रो टिप', checkEligibility: 'जांचें', land: 'जमीन (एकड़)', income: 'आय (₹/वर्ष)', category: 'श्रेणी', for: 'किसके लिए' },
+        te: { newBanner: 'కొత్త పథకాలు ఈ నెల చేర్చబడ్డాయి', search: 'పథకాలు వెతకండి...', askHorizon: 'హొరైజన్‌ని అడగండి', eligible: 'నేను అర్హుడినా?', stateSchemes: 'రాష్ట్ర పథకాలు', benefit: 'ముఖ్య ప్రయోజనం', docs: 'అవసరమైన పత్రాలు', steps: 'ఎలా దరఖాస్తు చేయాలి', timeline: 'సమయం', tip: 'ప్రో టిప్', checkEligibility: 'తనిఖీ', land: 'భూమి (ఎకరాలు)', income: 'ఆదాయం (₹/సం)', category: 'వర్గం', for: 'ఎవరికి' },
+        kn: { newBanner: 'ಹೊಸ ಯೋಜನೆಗಳು ಈ ತಿಂಗಳು ಸೇರಿಸಲಾಗಿದೆ', search: 'ಯೋಜನೆಗಳನ್ನು ಹುಡುಕಿ...', askHorizon: 'ಹೊರೈಜನ್ ಕೇಳಿ', eligible: 'ನಾನು ಅರ್ಹನೇ?', stateSchemes: 'ರಾಜ್ಯ ಯೋಜನೆಗಳು', benefit: 'ಮುಖ್ಯ ಲಾಭ', docs: 'ಅಗತ್ಯ ದಾಖಲೆಗಳು', steps: 'ಅರ್ಜಿ ಹೇಗೆ', timeline: 'ಸಮಯ', tip: 'ಪ್ರೊ ಟಿಪ್', checkEligibility: 'ಪರಿಶೀಲಿಸಿ', land: 'ಭೂಮಿ (ಎಕರೆ)', income: 'ಆದಾಯ (₹/ವ)', category: 'ವರ್ಗ', for: 'ಯಾರಿಗೆ' },
+        ml: { newBanner: 'പുതിയ പദ്ധതികൾ ഈ മാസം ചേർത്തു', search: 'പദ്ധതികൾ തിരയൂ...', askHorizon: 'ഹൊറൈസണോട് ചോദിക്കൂ', eligible: 'ഞാൻ യോഗ്യനാണോ?', stateSchemes: 'സംസ്ഥാന പദ്ധതികൾ', benefit: 'പ്രധാന ആനുകൂല്യം', docs: 'ആവശ്യമായ രേഖകൾ', steps: 'എങ്ങനെ അപേക്ഷിക്കാം', timeline: 'സമയപരിധി', tip: 'പ്രോ ടിപ്', checkEligibility: 'പരിശോധിക്കൂ', land: 'ഭൂമി (ഏക്കർ)', income: 'വരുമാനം (₹/വ)', category: 'വിഭാഗം', for: 'ആർക്ക്' },
+        bn: { newBanner: 'নতুন প্রকল্প এই মাসে যোগ হয়েছে', search: 'প্রকল্প খুঁজুন...', askHorizon: 'হরাইজনকে জিজ্ঞাসা করুন', eligible: 'আমি কি যোগ্য?', stateSchemes: 'রাজ্য প্রকল্প', benefit: 'মূল সুবিধা', docs: 'প্রয়োজনীয় নথি', steps: 'কীভাবে আবেদন করবেন', timeline: 'সময়সীমা', tip: 'প্রো টিপ', checkEligibility: 'যাচাই', land: 'জমি (একর)', income: 'আয় (₹/বছর)', category: 'শ্রেণী', for: 'কাদের জন্য' },
+        mr: { newBanner: 'नवीन योजना या महिन्यात जोडल्या', search: 'योजना शोधा...', askHorizon: 'होरायझनला विचारा', eligible: 'मी पात्र आहे का?', stateSchemes: 'राज्य योजना', benefit: 'मुख्य लाभ', docs: 'आवश्यक कागदपत्रे', steps: 'अर्ज कसा करावा', timeline: 'कालावधी', tip: 'प्रो टिप', checkEligibility: 'तपासा', land: 'जमीन (एकर)', income: 'उत्पन्न (₹/वर्ष)', category: 'वर्ग', for: 'कोणासाठी' }
+    };
+
+const MobileMarketDashboard = memo(({ onBack, currentLanguage, labels, initialView }: MarketDashboardProps) => {
+    const [view, setView] = useState<View>(initialView || 'menu');
+
+    useEffect(() => {
+        if (initialView) {
+            setView(initialView);
+        }
+    }, [initialView]);
+    const [searchInput, setSearchInput] = useState('');
+    const [searchTerm, setSearchTerm] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
+    const [selectedVehicleIndex, setSelectedVehicleIndex] = useState<number | null>(null);
+
+    // Data State
+
+    // Marketing stories are dynamic
+    const [stories, setStories] = useState<Story[]>([]);
+
+
+
+    // Audio State
+    const audioRef = useRef<HTMLAudioElement | null>(null);
+    const [playingText, setPlayingText] = useState<string | null>(null);
+
+    const stopAudio = useCallback(() => {
+        if (audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current.currentTime = 0;
+            audioRef.current = null;
+        }
+        setPlayingText(null);
+    }, []);
+
+    const playTTS = useCallback(async (text: string) => {
+        if (playingText === text) {
+            stopAudio();
+            return;
+        }
+        stopAudio();
+        setPlayingText(text);
+
+        try {
+            const response = await fetch('/api/assistant/voice/tts', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text, language: currentLanguage })
+            });
+            if (!response.ok) throw new Error('TTS failed');
+            const audioBlob = await response.blob();
+            const audioUrl = URL.createObjectURL(audioBlob);
+            const audio = new Audio(audioUrl);
+            audioRef.current = audio;
+            audio.onended = () => { setPlayingText(null); URL.revokeObjectURL(audioUrl); };
+            audio.onerror = () => { setPlayingText(null); URL.revokeObjectURL(audioUrl); };
+            audio.play();
+        } catch (e) {
+            console.error("TTS Error", e);
+            setPlayingText(null);
+        }
+    }, [currentLanguage, playingText, stopAudio]);
+
+    const fetchGeneric = useCallback(async (type: string, topic: string) => {
+        setIsLoading(true);
+        try {
+            const prompt = `Generate 5 ${type} success stories for Indian agriculture in a JSON array. Each item must include name, location, content, and image_prompt. Topic: ${topic}. Return only valid JSON.`;
+            const result = await assistantApi.chat(prompt, currentLanguage, [], 'marketing');
+            const responseText = result?.response;
+            if (!responseText) {
+                return null;
+            }
+
+            try {
+                const parsed = JSON.parse(responseText);
+                if (Array.isArray(parsed)) {
+                    return parsed;
+                }
+            } catch (parseError) {
+                const match = responseText.match(/\[.*\]/s);
+                if (match) {
+                    try {
+                        const parsed = JSON.parse(match[0]);
+                        if (Array.isArray(parsed)) {
+                            return parsed;
+                        }
+                    } catch {
+                        // ignore parse failure
+                    }
+                }
+            }
+
+            return [{
+                name: topic,
+                location: 'India',
+                content: responseText,
+                image_prompt: topic
+            }];
+        } catch (e) {
+            console.error(`Failed to fetch ${type}`, e);
+            return null;
+        } finally {
+            setIsLoading(false);
+        }
+    }, [currentLanguage]);
+
+    // Load initial marketing stories
+    useEffect(() => {
+        if (view === 'marketing' && stories.length === 0) {
+            fetchGeneric('marketing', 'Sustainable Farming').then(data => {
+                if (data && Array.isArray(data)) setStories(data);
+            });
+        }
+    }, [view]);
+
+
+    const handleSearchMarketing = useCallback((term: string) => {
+        if (!term.trim()) return;
+        setStories([]);
+        fetchGeneric('marketing', term).then(data => {
+            if (data && Array.isArray(data)) setStories(data);
+        });
+    }, [fetchGeneric]);
+
+    // Debounce search input for marketing lookup (400ms)
+    useEffect(() => {
+        const handler = setTimeout(() => {
+            setSearchTerm(searchInput);
+        }, 400);
+        return () => clearTimeout(handler);
+    }, [searchInput]);
+
+    useEffect(() => {
+        if (searchTerm.trim()) {
+            handleSearchMarketing(searchTerm);
+        }
+    }, [searchTerm]);
+
+    const renderMenu = () => (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-fade-in pb-8">
+            <div onClick={() => setView('rates')} className="glass-panel w-full p-6 rounded-3xl cursor-pointer hover:bg-white/10 transition-all border-emerald-500/20 group">
+                <TrendingUp className="w-10 h-10 text-emerald-400 mb-4 group-hover:scale-110 transition-transform" />
+                <h3 className="text-xl font-bold mb-2">{labels.rates}</h3>
+                <p className="text-gray-400 text-sm">{labels.ratesDesc || "Check daily market prices for crops in your mandi."}</p>
+            </div>
+
+
+
+            <div onClick={() => setView('schemes')} className="glass-panel w-full p-6 rounded-3xl cursor-pointer hover:bg-white/10 transition-all border-amber-500/20 group">
+                <Landmark className="w-10 h-10 text-amber-400 mb-4 group-hover:scale-110 transition-transform" />
+                <h3 className="text-xl font-bold mb-2">{labels.schemes}</h3>
+                <p className="text-gray-400 text-sm">{labels.schemesDesc || "Central and State schemes for subsidies and loans."}</p>
+            </div>
+
+            <div onClick={() => setView('marketing')} className="glass-panel w-full p-6 rounded-3xl cursor-pointer hover:bg-white/10 transition-all border-pink-500/20 group">
+                <BarChart3 className="w-10 h-10 text-pink-400 mb-4 group-hover:scale-110 transition-transform" />
+                <h3 className="text-xl font-bold mb-2">{labels.marketing}</h3>
+                <p className="text-gray-400 text-sm">{labels.marketingDesc || "Success stories, bloggers, and selling strategies."}</p>
+            </div>
+
+            <div onClick={() => setView('forecasting')} className="glass-panel w-full p-6 rounded-3xl cursor-pointer hover:bg-white/10 transition-all border-purple-500/20 group">
+                <BookOpen className="w-10 h-10 text-purple-400 mb-4 group-hover:scale-110 transition-transform" />
+                <h3 className="text-xl font-bold mb-2">{labels.forecasting || "Forecasting"}</h3>
+                <p className="text-gray-400 text-sm">{labels.forecastingDesc || "7-day AI predictions for crop market prices."}</p>
+            </div>
+        </div>
+    );
+
+    const renderSearchBar = (placeholder: string, onSearch: (val: string) => void) => (
+        <div className="flex gap-4 mb-6">
+            <div className="flex-1 relative">
+                <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-500" />
+                <input
+                    type="text"
+                    placeholder={placeholder}
+                    className="w-full bg-black/20 border border-white/10 rounded-2xl py-4 pl-12 pr-4 text-white focus:outline-none focus:border-emerald-500/50 transition-colors"
+                    value={searchInput}
+                    onChange={(e) => setSearchInput(e.target.value)}
+                    onKeyPress={(e) => {
+                        if (e.key === 'Enter') {
+                            setSearchTerm(searchInput);
+                            onSearch(searchInput);
+                        }
+                    }}
+                />
+            </div>
+            <button
+                onClick={() => {
+                    setSearchTerm(searchInput);
+                    onSearch(searchInput);
+                }}
+                disabled={isLoading}
+                className="px-8 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold rounded-2xl transition-colors flex items-center gap-2"
+            >
+                {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : "Search"}
+            </button>
+        </div>
+    );
+    const staticVehicles = vehicleTranslations[currentLanguage] || vehicleTranslations['en'];
+    const vLabels = vehicleLabels[currentLanguage] || vehicleLabels['en'];
+
+    // ========== GOVERNMENT SCHEMES — AI-Powered Dynamic Engine ==========
+    // DSA: O(1) Keyed Hash-Map for instant translation lookups by scheme id + language
+    // Scheme Categories
+    const schemeCategories = ['All', 'Income Support', 'Insurance', 'Credit', 'Market Access', 'Irrigation', 'Infrastructure', 'Organic Farming', 'Mechanisation'];
+    const [activeCategory, setActiveCategory] = useState('All');
+    const [expandedSchemeId, setExpandedSchemeId] = useState<string | null>(null);
+    const [schemeSearchInput, setSchemeSearchInput] = useState('');
+    const [schemeSearchTerm, setSchemeSearchTerm] = useState('');
+
+    // Debounce schemes fuzzy filter (300ms) to avoid CPU-bound Levenshtein calculations on typing
+    useEffect(() => {
+        const handler = setTimeout(() => {
+            setSchemeSearchTerm(schemeSearchInput);
+        }, 300);
+        return () => clearTimeout(handler);
+    }, [schemeSearchInput]);
+
+    // State Schemes (AI-generated)
+    const [stateSchemes, setStateSchemes] = useState<any[]>([]);
+    const [stateLoading, setStateLoading] = useState(false);
+
+    // AI Explainer State
+    const [explainerData, setExplainerData] = useState<{ [key: string]: any }>({});
+    const [explainerLoading, setExplainerLoading] = useState<string | null>(null);
+
+    // Eligibility Checker State
+    const [eligibilitySchemeId, setEligibilitySchemeId] = useState<string | null>(null);
+    const [eligibilityForm, setEligibilityForm] = useState({ landSize: '', category: 'General', income: '' });
+    const [eligibilityResult, setEligibilityResult] = useState<{ [key: string]: any }>({});
+    const [eligibilityLoading, setEligibilityLoading] = useState(false);
     const schemeIds = Object.keys(centralSchemes);
 
     // Count new schemes this month
-    const newSchemesThisMonth = schemeIds.filter(id => {
-        const d = centralSchemes[id].dateAdded;
-        if (!d) return false;
-        const added = new Date(d);
-        const now = new Date();
-        return added.getMonth() === now.getMonth() && added.getFullYear() === now.getFullYear();
-    }).length;
+    const newSchemesThisMonth = useMemo(() => {
+        return schemeIds.filter(id => {
+            const d = centralSchemes[id].dateAdded;
+            if (!d) return false;
+            const added = new Date(d);
+            const now = new Date();
+            return added.getMonth() === now.getMonth() && added.getFullYear() === now.getFullYear();
+        }).length;
+    }, []);
 
     // Fetch state-specific schemes when schemes tab opens
     useEffect(() => {
@@ -1105,7 +1191,7 @@ const MobileMarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashbo
         }
     }, [view]);
 
-    // Update document title dynamically based on active sub-view in Market Intelligence on mobile
+    // Update document title dynamically based on active sub-view in Market Intelligence
     useEffect(() => {
         if (view === 'menu') {
             document.title = `EventHorizon AI — Market Intelligence`;
@@ -1173,20 +1259,7 @@ const MobileMarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashbo
         } finally {
             setEligibilityLoading(false);
         }
-    };
-
-    // UI Labels for schemes section
-    const schemeLabels: { [key: string]: any } = {
-        en: { newBanner: 'new schemes added this month', search: 'Search schemes...', askHorizon: 'Ask Horizon', eligible: 'Am I Eligible?', stateSchemes: 'State Schemes', benefit: 'Key Benefit', docs: 'Documents Needed', steps: 'How to Apply', timeline: 'Timeline', tip: 'Pro Tip', checkEligibility: 'Check', land: 'Land (acres)', income: 'Income (₹/yr)', category: 'Category', for: 'For' },
-        ta: { newBanner: 'புதிய திட்டங்கள் இந்த மாதம் சேர்க்கப்பட்டன', search: 'திட்டங்களை தேடு...', askHorizon: 'ஹொரிசனிடம் கேள்', eligible: 'நான் தகுதியா?', stateSchemes: 'மாநில திட்டங்கள்', benefit: 'முக்கிய பலன்', docs: 'தேவையான ஆவணங்கள்', steps: 'எப்படி விண்ணப்பிக்கலாம்', timeline: 'காலக்கெடு', tip: 'ப்ரோ டிப்', checkEligibility: 'சரிபார்', land: 'நிலம் (ஏக்கர்)', income: 'வருமானம் (₹/ஆ)', category: 'பிரிவு', for: 'யாருக்கு' },
-        hi: { newBanner: 'नई योजनाएं इस महीने जोड़ी गईं', search: 'योजना खोजें...', askHorizon: 'होराइज़न से पूछें', eligible: 'क्या मैं योग्य हूं?', stateSchemes: 'राज्य योजनाएं', benefit: 'मुख्य लाभ', docs: 'आवश्यक दस्तावेज', steps: 'आवेदन कैसे करें', timeline: 'समयसीमा', tip: 'प्रो टिप', checkEligibility: 'जांचें', land: 'जमीन (एकड़)', income: 'आय (₹/वर्ष)', category: 'श्रेणी', for: 'किसके लिए' },
-        te: { newBanner: 'కొత్త పథకాలు ఈ నెల చేర్చబడ్డాయి', search: 'పథకాలు వెతకండి...', askHorizon: 'హొరైజన్‌ని అడగండి', eligible: 'నేను అర్హుడినా?', stateSchemes: 'రాష్ట్ర పథకాలు', benefit: 'ముఖ్య ప్రయోజనం', docs: 'అవసరమైన పత్రాలు', steps: 'ఎలా దరఖాస్తు చేయాలి', timeline: 'సమయం', tip: 'ప్రో టిప్', checkEligibility: 'తనిఖీ', land: 'భూమి (ఎకరాలు)', income: 'ఆదాయం (₹/సం)', category: 'వర్గం', for: 'ఎవరికి' },
-        kn: { newBanner: 'ಹೊಸ ಯೋಜನೆಗಳು ಈ ತಿಂಗಳು ಸೇರಿಸಲಾಗಿದೆ', search: 'ಯೋಜನೆಗಳನ್ನು ಹುಡುಕಿ...', askHorizon: 'ಹೊರೈಜನ್ ಕೇಳಿ', eligible: 'ನಾನು ಅರ್ಹನೇ?', stateSchemes: 'ರಾಜ್ಯ ಯೋಜನೆಗಳು', benefit: 'ಮುಖ್ಯ ಲಾಭ', docs: 'ಅಗತ್ಯ ದಾಖಲೆಗಳು', steps: 'ಅರ್ಜಿ ಹೇಗೆ', timeline: 'ಸಮಯ', tip: 'ಪ್ರೊ ಟಿಪ್', checkEligibility: 'ಪರಿಶೀಲಿಸಿ', land: 'ಭೂಮಿ (ಎಕರೆ)', income: 'ಆದಾಯ (₹/ವ)', category: 'ವರ್ಗ', for: 'ಯಾರಿಗೆ' },
-        ml: { newBanner: 'പുതിയ പദ്ധതികൾ ഈ മാസം ചേർത്തു', search: 'പദ്ധതികൾ തിരയൂ...', askHorizon: 'ഹൊറൈസണോട് ചോദിക്കൂ', eligible: 'ഞാൻ യോഗ്യനാണോ?', stateSchemes: 'സംസ്ഥാന പദ്ധതികൾ', benefit: 'പ്രധാന ആനുകൂല്യം', docs: 'ആവശ്യമായ രേഖകൾ', steps: 'എങ്ങനെ അപേക്ഷിക്കാം', timeline: 'സമയപരിധി', tip: 'പ്രോ ടിപ്', checkEligibility: 'പരിശോധിക്കൂ', land: 'ഭൂമി (ഏക്കർ)', income: 'വരുമാനം (₹/വ)', category: 'വിഭാഗം', for: 'ആർക്ക്' },
-        bn: { newBanner: 'নতুন প্রকল্প এই মাসে যোগ হয়েছে', search: 'প্রকল্প খুঁজুন...', askHorizon: 'হরাইজনকে জিজ্ঞাসা করুন', eligible: 'আমি কি যোগ্য?', stateSchemes: 'রাজ্য প্রকল্প', benefit: 'মূল সুবিধা', docs: 'প্রয়োজনীয় নথি', steps: 'কীভাবে আবেদন করবেন', timeline: 'সময়সীমা', tip: 'প্রো টিপ', checkEligibility: 'যাচাই', land: 'জমি (একর)', income: 'আয় (₹/বছর)', category: 'শ্রেণী', for: 'কাদের জন্য' },
-        mr: { newBanner: 'नवीन योजना या महिन्यात जोडल्या', search: 'योजना शोधा...', askHorizon: 'होरायझनला विचारा', eligible: 'मी पात्र आहे का?', stateSchemes: 'राज्य योजना', benefit: 'मुख्य लाभ', docs: 'आवश्यक कागदपत्रे', steps: 'अर्ज कसा करावा', timeline: 'कालावधी', tip: 'प्रो टिप', checkEligibility: 'तपासा', land: 'जमीन (एकर)', income: 'उत्पन्न (₹/वर्ष)', category: 'वर्ग', for: 'कोणासाठी' }
-    };
-    const sLabels = schemeLabels[currentLanguage] || schemeLabels['en'];
+    };    const sLabels = schemeLabels[currentLanguage] || schemeLabels['en'];
 
     const renderSchemes = () => {
         // Filter schemes by category and search
@@ -1200,7 +1273,7 @@ const MobileMarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashbo
         });
 
         return (
-            <div className="flex flex-col h-full animate-fade-in">
+            <div className="flex flex-col w-full h-full animate-fade-in">
                 {/* AI Banner */}
                 <div className="flex items-center gap-3 px-4 py-3 mb-4 bg-gradient-to-r from-emerald-500/10 to-teal-500/10 border border-emerald-500/20 rounded-2xl backdrop-blur-sm">
                     <span className="text-xl">✨</span>
@@ -1222,8 +1295,8 @@ const MobileMarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashbo
                         type="text"
                         placeholder={sLabels.search}
                         className="w-full bg-black/20 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-white text-sm focus:outline-none focus:border-emerald-500/50 transition-colors"
-                        value={schemeSearchTerm}
-                        onChange={(e) => setSchemeSearchTerm(e.target.value)}
+                        value={schemeSearchInput}
+                        onChange={(e) => setSchemeSearchInput(e.target.value)}
                     />
                 </div>
 
@@ -1243,8 +1316,8 @@ const MobileMarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashbo
                     ))}
                 </div>
 
-                {/* Schemes Grid — scrollable content area */}
-                <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar">
+                {/* Schemes Grid — full screen scroll */}
+                <div className="w-full">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-8">
                     {filteredIds.map(id => {
                         const s = centralSchemes[id];
@@ -1357,13 +1430,26 @@ const MobileMarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashbo
                                                     className="w-full py-2 bg-cyan-600/30 text-cyan-400 hover:bg-cyan-600/40 border border-cyan-500/30 rounded-lg text-xs font-medium transition-colors flex items-center justify-center gap-2">
                                                     {eligibilityLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : sLabels.checkEligibility}
                                                 </button>
-                                                {eligibilityResult[name] && (
-                                                    <div className={`p-3 rounded-lg text-xs border ${eligibilityResult[name].eligible ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300' : 'bg-red-500/10 border-red-500/20 text-red-300'}`}>
-                                                        <div className="font-bold mb-1">{eligibilityResult[name].eligible ? '✅ Eligible' : '❌ Not Eligible'} ({eligibilityResult[name].confidence})</div>
-                                                        <p>{eligibilityResult[name].reason}</p>
-                                                        <p className="mt-1 text-gray-400">{eligibilityResult[name].suggestion}</p>
-                                                    </div>
-                                                )}
+                                                {eligibilityResult[name] && (() => {
+                                                    const statusText = eligibilityResult[name].eligible 
+                                                        ? (currentLanguage === 'ta' ? 'தகுதியானது' : currentLanguage === 'hi' ? 'योग्य' : 'Eligible') 
+                                                        : (currentLanguage === 'ta' ? 'தகுதியற்றது' : currentLanguage === 'hi' ? 'योग्य नहीं' : 'Not Eligible');
+                                                    const speechText = `${name}. ${statusText}. ${eligibilityResult[name].reason}. ${eligibilityResult[name].suggestion}`;
+                                                    const isPlaying = playingText === speechText;
+                                                    
+                                                    return (
+                                                        <div className={`p-3 rounded-lg text-xs border relative ${eligibilityResult[name].eligible ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300' : 'bg-red-500/10 border-red-500/20 text-red-300'}`}>
+                                                            <div className="flex justify-between items-start gap-2 mb-1">
+                                                                <div className="font-bold">{eligibilityResult[name].eligible ? '✅ Eligible' : '❌ Not Eligible'} ({eligibilityResult[name].confidence})</div>
+                                                                <button onClick={(e) => { e.stopPropagation(); playTTS(speechText); }} className="p-1 hover:bg-white/10 rounded-full text-gray-300 hover:text-white transition-colors">
+                                                                    {isPlaying ? <StopCircle className="w-3.5 h-3.5 animate-pulse text-red-400" /> : <Volume2 className="w-3.5 h-3.5" />}
+                                                                </button>
+                                                            </div>
+                                                            <p>{eligibilityResult[name].reason}</p>
+                                                            <p className="mt-1 text-gray-400">{eligibilityResult[name].suggestion}</p>
+                                                        </div>
+                                                    );
+                                                })()}
                                             </div>
                                         )}
                                     </div>
@@ -1414,7 +1500,7 @@ const MobileMarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashbo
 
 
     const renderVehicles = () => (
-        <div className="flex flex-col h-full animate-fade-in">
+        <div className="flex flex-col w-full h-full animate-fade-in">
             {/* No Search Bar for Vehicles - Static List */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pb-8 overflow-y-auto custom-scrollbar">
                 {staticVehicles.map((v, i) => (
@@ -1451,7 +1537,7 @@ const MobileMarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashbo
     const renderVehicleDetails = () => {
         const selectedVehicle = selectedVehicleIndex !== null ? staticVehicles[selectedVehicleIndex] : null;
         return (
-            <div className="flex flex-col h-full animate-fade-in pb-8 overflow-y-auto custom-scrollbar">
+            <div className="flex flex-col w-full h-full animate-fade-in pb-8 overflow-y-auto custom-scrollbar">
                 {selectedVehicle && (
                     <div className="max-w-4xl mx-auto w-full">
                         <div className="glass-panel p-0 rounded-3xl overflow-hidden border-blue-500/20">
@@ -1512,7 +1598,7 @@ const MobileMarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashbo
 
 
     const renderMarketing = () => (
-        <div className="flex flex-col h-full animate-fade-in">
+        <div className="flex flex-col w-full h-full animate-fade-in">
             {renderSearchBar("Search topics (e.g. Organic)...", handleSearchMarketing)}
 
             <div className="grid grid-cols-1 gap-6 pb-8 overflow-y-auto custom-scrollbar">
@@ -1578,8 +1664,8 @@ const MobileMarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashbo
                 </div>
             </header>
 
-            <div className="flex-1 overflow-hidden">
-                {view === 'menu' && <div className="h-full overflow-y-auto custom-scrollbar">{renderMenu()}</div>}
+            <div className={`flex-1 w-full ${view === 'schemes' ? 'overflow-y-auto custom-scrollbar pr-1 pb-8' : 'overflow-hidden'}`}>
+                {view === 'menu' && <div className="w-full h-full overflow-y-auto custom-scrollbar">{renderMenu()}</div>}
                 {view === 'rates' && <MandiInterface currentLanguage={currentLanguage} />}
 
 
@@ -1587,7 +1673,7 @@ const MobileMarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashbo
                 {view === 'vehicle_details' && renderVehicleDetails()}
                 {view === 'schemes' && renderSchemes()}
                 {view === 'forecasting' && (
-                    <div className="flex flex-col h-full animate-fade-in md:p-6 overflow-y-auto custom-scrollbar min-w-0">
+                    <div className="flex flex-col w-full h-full animate-fade-in md:p-6 overflow-y-auto custom-scrollbar min-w-0">
                         <ForecastingInterface currentLanguage={currentLanguage} labels={labels} />
                     </div>
                 )}
@@ -1595,6 +1681,6 @@ const MobileMarketDashboard = ({ onBack, currentLanguage, labels }: MarketDashbo
             </div>
         </div>
     );
-};
+});
 
 export default MobileMarketDashboard;

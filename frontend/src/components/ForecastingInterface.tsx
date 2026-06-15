@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo, useCallback } from 'react';
 import { CloudRain, TrendingUp, Search } from 'lucide-react';
 import MandiForecasting from './MandiForecasting';
 import AgriWeather from './AgriWeather';
@@ -64,10 +64,10 @@ const ForecastingInterface = ({ labels }: ForecastingInterfaceProps) => {
         fetchDistricts();
     }, [crop, state]);
 
-    const handleSearch = () => {
+    const handleSearch = useCallback(() => {
         setSubmittedCrop(crop);
         setSubmittedState(state);
-    };
+    }, [crop, state]);
 
     return (
         <div className="flex flex-col h-full overflow-y-auto custom-scrollbar p-0 animate-fade-in text-white min-w-0">
@@ -148,4 +148,4 @@ const ForecastingInterface = ({ labels }: ForecastingInterfaceProps) => {
     );
 };
 
-export default ForecastingInterface;
+export default memo(ForecastingInterface);

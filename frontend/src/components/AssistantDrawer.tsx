@@ -1,11 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
 import { useUserStore } from '../store/userStore';
 import { useVoice } from '../hooks/useVoice';
-import { usePageContext } from '../hooks/usePageContext';
 import VoiceWaveform from './VoiceWaveform';
 import { RecentChats } from './RecentChats';
 import { chatMemory, ChatSession } from '../services/chatMemory';
-import { X, Send, Mic, Volume2, Sparkles, ChevronRight, FileText, MessageSquare, History, VolumeX, Trash2 } from 'lucide-react';
+import { X, Send, Mic, Volume2, MessageSquare, History, VolumeX, Trash2 } from 'lucide-react';
 
 export default function AssistantDrawer() {
   const isListening = useUserStore((state) => state.isListening);
@@ -17,8 +16,6 @@ export default function AssistantDrawer() {
   
   const ttsEnabled = useUserStore((state) => state.ttsEnabled);
   const setTtsEnabled = useUserStore((state) => state.setTtsEnabled);
-  const pageKeyPoints = useUserStore((state) => state.pageKeyPoints);
-  const isPageLoading = useUserStore((state) => state.isPageLoading);
 
   const [textInput, setTextInput] = useState('');
   const chatEndRef = useRef<HTMLDivElement | null>(null);
@@ -43,13 +40,7 @@ export default function AssistantDrawer() {
     speakText
   } = useVoice();
 
-  const {
-    pageTitle,
-    summary: pageSummary,
-    loading: pageLoading,
-    triggerPageAnalysis,
-    suggestedQuestions
-  } = usePageContext();
+
 
   // Scroll to bottom on new messages
   useEffect(() => {
@@ -200,9 +191,7 @@ export default function AssistantDrawer() {
     }
   };
 
-  const handleQuickQuestion = async (question: string) => {
-    await sendTextMessage(question);
-  };
+
 
   const handleClearChat = () => {
     clearMessages();
@@ -332,160 +321,11 @@ export default function AssistantDrawer() {
 
         {activeTab === 'chat' ? (
           <>
-            {/* Page Context Banner */}
-            <div className="bg-[#eef7f2] border-b border-[#d2edd7] px-4 py-2.5 flex items-center justify-between text-xs text-[#1A4731]">
-              <div className="flex items-center gap-2 font-semibold">
-                <Sparkles className="h-4 w-4 text-[#F5A623] animate-pulse" />
-                <span className="truncate max-w-[220px]">
-                  Reading: {pageTitle || 'Event Horizon Page'}
-                </span>
-              </div>
-              <button
-                onClick={triggerPageAnalysis}
-                disabled={pageLoading || isPageLoading}
-                className="flex items-center gap-1 bg-[#1A4731] hover:bg-[#123323] text-white font-bold py-1 px-2.5 rounded-lg shadow-sm disabled:opacity-50 cursor-pointer"
-              >
-                <FileText className="h-3 w-3" />
-                {pageLoading ? 'Analyzing...' : 'Analyze Page'}
-              </button>
-            </div>
-
             {/* Chat Bubbles Scroll Panel */}
             <div className="flex-1 overflow-y-auto custom-scrollbar px-4 py-5 space-y-4 bg-[#FAFAF7]">
               
-              {/* Premium Page AI Advisory Card */}
-              {(pageSummary || isPageLoading || (!pageSummary && pageTitle)) && (
-                <div className="bg-[#1A4731] text-white rounded-2xl p-4 shadow-md border border-[#F5A623]/20 space-y-3 relative overflow-hidden animate-fade-in mx-2">
-                  
-                  <div className="flex items-center justify-between border-b border-white/10 pb-2 relative z-10">
-                    <div className="flex items-center gap-1.5">
-                      <Sparkles className="h-4 w-4 text-[#F5A623] animate-pulse" />
-                      <h4 className="font-extrabold text-xs uppercase tracking-wider text-[#F5A623]">Page AI Advisory</h4>
-                    </div>
-                    {(pageSummary || isPageLoading) && (
-                      <button 
-                        onClick={() => useUserStore.setState({ pageSummary: null, pageKeyPoints: [], pageSuggestedQuestions: [] })}
-                        className="text-[10px] text-[#b0c0b0] hover:text-white underline cursor-pointer"
-                      >
-                        Dismiss
-                      </button>
-                    )}
-                  </div>
-
-                  <div className="relative z-10">
-                    <span className="text-[10px] text-white/40 block mb-1 font-mono uppercase tracking-wider truncate">Reading: {pageTitle || 'Active Page'}</span>
-                    <p className="text-xs font-semibold leading-relaxed text-gray-100">
-                      {isPageLoading 
-                        ? (activeLanguage === 'ta' ? "பக்கத்தின் தகவல்கள் மாறுகின்றன, தயவுசெய்து காத்திருக்கவும்..." : "Please wait, the page content is updating...")
-                        : (pageSummary || (activeLanguage === 'ta' ? "நான் இப்போது இந்த பக்கத்தை ஆராய முடியும்." : "I can now analyze this page now."))}
-                    </p>
-                  </div>
-
-                  {/* Insights Section */}
-                  {isPageLoading ? (
-                    <div className="space-y-1 relative z-10">
-                      <p className="text-[10px] font-bold text-[#F5A623] uppercase tracking-widest animate-pulse">Wait...</p>
-                      <ul className="text-[11px] space-y-1 text-gray-300 pl-1 list-none animate-pulse">
-                        <li className="flex items-start gap-1.5">
-                          <span className="text-amber-400 shrink-0 font-bold">⧗</span>
-                          <span>{activeLanguage === 'ta' ? "புதிய தகவல்கள் பதிவேற்றப்படுகின்றன..." : "Loading new parameters for this place..."}</span>
-                        </li>
-                      </ul>
-                    </div>
-                  ) : (
-                    (pageKeyPoints && pageKeyPoints.length > 0 ? (
-                      <div className="space-y-1 relative z-10">
-                        <p className="text-[10px] font-bold text-[#F5A623] uppercase tracking-widest">Key Insights:</p>
-                        <ul className="text-[11px] space-y-1 text-gray-200 pl-1 list-none">
-                          {pageKeyPoints.map((pt, idx) => (
-                            <li key={idx} className="flex items-start gap-1.5">
-                              <span className="text-[#F5A623] shrink-0 font-bold">✔</span>
-                              <span>{pt}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    ) : (
-                      <div className="space-y-1 relative z-10">
-                        <p className="text-[10px] font-bold text-[#F5A623] uppercase tracking-widest">Status:</p>
-                        <ul className="text-[11px] space-y-1 text-gray-200 pl-1 list-none">
-                          <li className="flex items-start gap-1.5">
-                            <span className="text-green-400 shrink-0 font-bold">✔</span>
-                            <span>{activeLanguage === 'ta' ? "பக்கம் தயாராக உள்ளது. ஆராயவும்!" : "I am ready to analyze this page now."}</span>
-                          </li>
-                        </ul>
-                      </div>
-                    ))
-                  )}
-
-                  {!isPageLoading && (
-                    <div className="flex gap-2 pt-1 relative z-10">
-                      {pageSummary ? (
-                        <button
-                          onClick={() => {
-                            let fullSpeechText = pageSummary || "";
-                            if (pageKeyPoints && pageKeyPoints.length > 0) {
-                              const langTransitions: Record<string, string> = {
-                                en: "Here are the key insights: ",
-                                ta: "முக்கிய கருத்துக்கள்: ",
-                                hi: "मुख्य बातें: ",
-                                te: "முఖ్యமான విషయాలు: ",
-                                kn: "ಮುಖ್ಯ ಮಾಹಿತಿ: ",
-                                ml: "പ്രധാന വിവരங்கள்: ",
-                                bn: "মূল তথ্যগুলি: ",
-                                mr: "मुख्य मुद्दे: ",
-                                gu: "મુખ્ય વિગતો: ",
-                                pa: "ਮੁੱਖ ਨੁਕਤੇ: "
-                              };
-                              const transition = langTransitions[activeLanguage] || langTransitions['en'];
-                              fullSpeechText += ". " + transition + " " + pageKeyPoints.join(". ");
-                            }
-                            speakText(fullSpeechText);
-                          }}
-                          disabled={voiceLoading}
-                          className={`flex-1 border rounded-lg py-1.5 text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
-                            isSpeaking ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30 animate-pulse' :
-                            'bg-white/10 hover:bg-white/20 text-white border-white/20'
-                          }`}
-                        >
-                          <Volume2 className="h-3.5 w-3.5" />
-                          {isSpeaking ? 'Speaking...' : 'Listen to Advisor'}
-                        </button>
-                      ) : (
-                        <button
-                          onClick={triggerPageAnalysis}
-                          disabled={pageLoading}
-                          className="flex-1 bg-[#F5A623] hover:bg-[#d48c17] text-[#0d1f16] font-bold py-1.5 px-3 rounded-lg shadow-sm text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
-                        >
-                          <Sparkles className="h-3.5 w-3.5" />
-                          {pageLoading ? 'Analyzing...' : 'Analyze Page Content'}
-                        </button>
-                      )}
-                    </div>
-                  )}
-
-                  {suggestedQuestions && suggestedQuestions.length > 0 && !isPageLoading && (
-                    <div className="space-y-1.5 pt-2 border-t border-white/10 relative z-10">
-                      <p className="text-[9px] font-bold text-white/50 uppercase tracking-wider pl-1">Ask Horizon about this page:</p>
-                      <div className="flex flex-wrap gap-1.5">
-                        {suggestedQuestions.map((q, idx) => (
-                          <button
-                            key={idx}
-                            onClick={() => handleQuickQuestion(q)}
-                            className="text-left py-1 px-2 text-[10px] font-bold text-white bg-white/5 hover:bg-[#F5A623] hover:text-[#0d1f16] rounded-lg border border-white/10 transition-all flex items-center gap-1 cursor-pointer"
-                          >
-                            <span>{q}</span>
-                            <ChevronRight className="h-3 w-3 opacity-60" />
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
               {/* Welcome Message if empty */}
-              {messages.length === 0 && !pageSummary && (
+              {messages.length === 0 && (
                 <div className="text-center p-6 space-y-4 bg-white rounded-2xl border border-[#eaeae0] mx-2 shadow-sm animate-fade-in">
                   <div className="text-3xl">🌾</div>
                   <h3 className="font-extrabold text-[#1A4731] text-lg">

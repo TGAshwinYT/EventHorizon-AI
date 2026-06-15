@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import { Sun, Cloud, CloudRain, CloudLightning, Wind, Droplets, Thermometer, Eye, Sunrise, Sunset, Gauge, ShieldAlert, Car, Flower2, Dumbbell, Palmtree, Bug, Loader2, AlertCircle } from 'lucide-react';
 
 interface MobileWeatherForecastProps {
     state: string;
     district: string;
+    place?: string;
 }
 
 interface WeatherData {
@@ -44,7 +45,18 @@ interface WeatherData {
     };
 }
 
-const MobileWeatherForecast = ({ state, district }: MobileWeatherForecastProps) => {
+const renderIcon = (type: string, size = 24) => {
+    const iconClass = `w-${size / 4} h-${size / 4}`;
+    switch (type) {
+        case 'sun': return <Sun className={`${iconClass} text-yellow-400`} fill="currentColor" />;
+        case 'cloudy': return <Cloud className={`${iconClass} text-gray-400`} fill="currentColor" />;
+        case 'storm': return <CloudLightning className={`${iconClass} text-gray-400`} fill="currentColor" />;
+        case 'rain': return <CloudRain className={`${iconClass} text-blue-400`} fill="currentColor" />;
+        default: return <Sun className={`${iconClass} text-yellow-400`} fill="currentColor" />;
+    }
+};
+
+const MobileWeatherForecast = memo(({ state, district, place }: MobileWeatherForecastProps) => {
     const [data, setData] = useState<WeatherData | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -54,7 +66,11 @@ const MobileWeatherForecast = ({ state, district }: MobileWeatherForecastProps) 
             setLoading(true);
             setError(null);
             try {
-                const response = await fetch(`/api/weather/detailed?state=${encodeURIComponent(state)}&district=${encodeURIComponent(district)}`);
+                let url = `/api/weather/detailed?state=${encodeURIComponent(state)}&district=${encodeURIComponent(district)}`;
+                if (place && place.trim()) {
+                    url += `&place=${encodeURIComponent(place.trim())}`;
+                }
+                const response = await fetch(url);
                 if (!response.ok) throw new Error("Failed to fetch weather data");
                 const jsonData = await response.json();
                 setData(jsonData);
@@ -69,18 +85,7 @@ const MobileWeatherForecast = ({ state, district }: MobileWeatherForecastProps) 
         if (state && district) {
             fetchData();
         }
-    }, [state, district]);
-
-    const renderIcon = (type: string, size = 24) => {
-        const iconClass = `w-${size / 4} h-${size / 4}`;
-        switch (type) {
-            case 'sun': return <Sun className={`${iconClass} text-yellow-400`} fill="currentColor" />;
-            case 'cloudy': return <Cloud className={`${iconClass} text-gray-400`} fill="currentColor" />;
-            case 'storm': return <CloudLightning className={`${iconClass} text-gray-400`} fill="currentColor" />;
-            case 'rain': return <CloudRain className={`${iconClass} text-blue-400`} fill="currentColor" />;
-            default: return <Sun className={`${iconClass} text-yellow-400`} fill="currentColor" />;
-        }
-    };
+    }, [state, district, place]);
 
     if (loading) {
         return (
@@ -328,6 +333,6 @@ const MobileWeatherForecast = ({ state, district }: MobileWeatherForecastProps) 
             </div>
         </div>
     );
-};
+});
 
 export default MobileWeatherForecast;

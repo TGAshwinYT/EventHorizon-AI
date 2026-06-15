@@ -73,7 +73,7 @@ export const RecentChats: React.FC<RecentChatsProps> = ({ onSelectSession, activ
                 <div className="flex items-center gap-2 mt-1">
                   <span className="text-xxs text-slate-500">{formatTime(session.timestamp)}</span>
                   <span className="text-[10px] uppercase font-bold text-amber-500/70 bg-amber-500/5 px-1.5 py-0.5 rounded-md">
-                    {session.language === 'ta-en' ? 'Tanglish' : session.language === 'hi-en' ? 'Hinglish' : session.language.toUpperCase()}
+                    {session.language.toUpperCase()}
                   </span>
                 </div>
               </div>

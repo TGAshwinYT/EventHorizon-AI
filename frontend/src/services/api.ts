@@ -21,11 +21,7 @@ export const assistantApi = {
     const formData = new FormData();
     formData.append('audio', audioBlob, 'audio.webm');
     
-    const response = await api.post('/api/assistant/voice/stt', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data'
-      }
-    });
+    const response = await api.post('/api/assistant/voice/stt', formData);
     return response.data;
   },
 

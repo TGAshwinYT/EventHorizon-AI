@@ -6,7 +6,8 @@ Endpoints: assess, crops, locations, advisory/sms, health.
 """
 
 import os
-import requests
+import httpx
+import asyncio
 from datetime import datetime
 from typing import Optional
 
@@ -72,6 +73,7 @@ class AssessRequest(BaseModel):
     lon: Optional[float] = None
     state: Optional[str] = None
     district: Optional[str] = None
+    place: Optional[str] = None
     lang: str = "en"
 
 
@@ -87,7 +89,7 @@ def _get_client_ip(request: Request) -> Optional[str]:
     return request.client.host if request.client else None
 
 
-def _resolve_location_from_ip(ip: str) -> Optional[dict]:
+async def _resolve_location_from_ip(ip: str, client: httpx.AsyncClient) -> Optional[dict]:
     """IP geolocation via ip-api.com (free, no key)."""
     if not ip or ip in ("127.0.0.1", "::1", "localhost"):
         return None
@@ -97,11 +99,11 @@ def _resolve_location_from_ip(ip: str) -> Optional[dict]:
         return cached
 
     try:
-        res = requests.get(
+        res = await client.get(
             f"http://ip-api.com/json/{ip}?fields=status,city,regionName,lat,lon",
             timeout=5,
         )
-        if res.ok:
+        if res.status_code == 200:
             data = res.json()
             if data.get("status") == "success":
                 nearest = find_nearest_district(data["lat"], data["lon"])
@@ -125,23 +127,27 @@ async def _resolve_location(
     lon: Optional[float],
     state: Optional[str],
     district: Optional[str],
+    place: Optional[str],
     request: Request,
+    client: httpx.AsyncClient,
 ) -> dict:
     """
     4-layer location resolution:
-      Layer 0: Manual state/district
+      Layer 0: Manual state/district/place
       Layer 1: GPS coords
       Layer 2: IP geolocation
       Layer 3: error
     """
     # Layer 0: Manual
     if state and district:
-        db_lat, db_lon = get_coords_for_district(state, district)
+        from app.services.geocoding import get_coords_with_place
+        lat_res, lon_res = await get_coords_with_place(state, district, place or "", client)
         return {
             "state": state,
             "district": district,
-            "lat": db_lat or 0.0,
-            "lon": db_lon or 0.0,
+            "place": place or "",
+            "lat": lat_res,
+            "lon": lon_res,
             "method": "manual"
         }
 
@@ -155,7 +161,7 @@ async def _resolve_location(
     # Layer 2: IP
     ip = _get_client_ip(request)
     if ip:
-        result = _resolve_location_from_ip(ip)
+        result = await _resolve_location_from_ip(ip, client)
         if result:
             return result
 
@@ -189,75 +195,109 @@ async def assess_crop_risk(body: AssessRequest, request: Request):
             detail=f"Crop '{crop}' not found. Use GET /api/harvestiq/crops for available crops.",
         )
 
-    # Resolve location
-    location = await _resolve_location(body.lat, body.lon, body.state, body.district, request)
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        # Resolve location
+        location = await _resolve_location(body.lat, body.lon, body.state, body.district, body.place, request, client)
 
-    # Cache check
-    cache_key = f"hiq_{matched_crop}_{location['lat']}_{location['lon']}"
-    cached = _risk_cache.get(cache_key)
-    if cached:
-        return cached
+        # Cache check
+        cache_key = f"hiq_{matched_crop}_{location['lat']}_{location['lon']}"
+        cached = _risk_cache.get(cache_key)
+        if cached:
+            return cached
 
-    # Get API key
-    api_key = os.getenv("OPENWEATHERMAP_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=503, detail="Weather service unavailable: API key not configured.")
+        # Get API key
+        api_key = os.getenv("OPENWEATHERMAP_API_KEY")
+        if not api_key:
+            raise HTTPException(status_code=503, detail="Weather service unavailable: API key not configured.")
 
-    # Get coordinates — prefer static DB, fallback to provided GPS
-    final_lat = location["lat"]
-    final_lon = location["lon"]
+        # Get coordinates resolved from location
+        final_lat = location["lat"]
+        final_lon = location["lon"]
 
-    # If we matched to a known district, use its precise coords
-    if location["state"] != "Unknown":
-        db_lat, db_lon = get_coords_for_district(location["state"], location["district"])
-        if db_lat is not None:
-            final_lat, final_lon = db_lat, db_lon
+        place_name = location.get("place", "")
+        if place_name:
+            location_label = f"{place_name}, {location['district']}, {location['state']}"
+        else:
+            location_label = f"{location['district']}, {location['state']}"
 
-    location_label = f"{location['district']}, {location['state']}"
+        # Concurrently fetch weather risk assessment and NDVI data
+        try:
+            risk_task = compute_risk_assessment(
+                lat=final_lat,
+                lon=final_lon,
+                crop=matched_crop,
+                location_label=location_label,
+                api_key=api_key,
+                client=client,
+            )
+            ndvi_task = get_ndvi_analysis(final_lat, final_lon, periods=6, client=client)
 
-    try:
-        result = compute_risk_assessment(
-            lat=final_lat,
-            lon=final_lon,
-            crop=matched_crop,
-            location_label=location_label,
-            api_key=api_key,
-        )
-    except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=f"Weather service error: {str(e)}")
+            risk_res, ndvi_res = await asyncio.gather(risk_task, ndvi_task, return_exceptions=True)
 
-    # Enrich with growth stage + metadata
-    meta = CROP_META.get(matched_crop, {})
-    result["growth_stage"] = body.growth_stage
-    result["crop_icon"] = meta.get("icon", "🌱")
-    result["location_method"] = location["method"]
+            # Check for weather service/risk assessment error
+            if isinstance(risk_res, Exception):
+                raise HTTPException(status_code=503, detail=f"Weather service error: {str(risk_res)}")
+            
+            result = risk_res
 
-    # Phase 2: Satellite NDVI
-    try:
-        ndvi_data = get_ndvi_analysis(final_lat, final_lon, periods=6)
-        result["satellite"] = ndvi_data
-    except Exception as e:
-        print(f"[HarvestIQ] NDVI error: {e}")
-        ndvi_data = None
-        result["satellite"] = None
+            # Check for satellite/NDVI error
+            if isinstance(ndvi_res, Exception):
+                print(f"[HarvestIQ] NDVI error: {ndvi_res}")
+                ndvi_data = None
+            else:
+                ndvi_data = ndvi_res
+
+            result["satellite"] = ndvi_data
+
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=503, detail=f"Risk assessment compilation failed: {str(e)}")
+
+        # Enrich with growth stage + metadata
+        meta = CROP_META.get(matched_crop, {})
+        result["growth_stage"] = body.growth_stage
+        result["crop_icon"] = meta.get("icon", "🌱")
+        result["location_method"] = location["method"]
 
     # Phase 3: Irrigation Schedule
     try:
-        # We need weather forecast. Result contains 'weather_context' if compute_risk_assessment populated it.
-        # compute_risk_assessment doesn't return raw forecast by default, but it might.
-        # If not, we will just use a dummy array for the UI until we patch risk_assessment_service.
-        # Actually, let's just create a quick synthetic forecast using result['weather']['temp_max']
-        # Or better, let's look at result['weather'] structure. For now, synthetic 7-day array to pass to irrigation.
         base_water = meta.get("water_need_mm_week", 25)
-        # We need a quick mock forecast if weather isn't returning 7-day array natively
-        import datetime
-        mock_forecast = [{"date": (datetime.datetime.now() + datetime.timedelta(days=i)).strftime("%Y-%m-%d"), "day_name": (datetime.datetime.now() + datetime.timedelta(days=i)).strftime("%A"), "rain_mm": 0, "pop": 0} for i in range(7)]
+        
+        # Use real forecast from the weather service if available, else fallback
+        forecast = result.get("weather_forecast")
+        if forecast:
+            import datetime
+            # Pad to 7 days if the 5-day weather API returns fewer days
+            while len(forecast) < 7:
+                last_date_str = forecast[-1]["date"]
+                try:
+                    last_date = datetime.datetime.strptime(last_date_str, "%Y-%m-%d")
+                except ValueError:
+                    last_date = datetime.datetime.now()
+                next_date = last_date + datetime.timedelta(days=1)
+                forecast.append({
+                    "date": next_date.strftime("%Y-%m-%d"),
+                    "day_name": next_date.strftime("%A"),
+                    "rain_mm": 0.0,
+                    "pop": 0.0
+                })
+        else:
+            import datetime
+            forecast = [
+                {
+                    "date": (datetime.datetime.now() + datetime.timedelta(days=i)).strftime("%Y-%m-%d"),
+                    "day_name": (datetime.datetime.now() + datetime.timedelta(days=i)).strftime("%A"),
+                    "rain_mm": 0.0,
+                    "pop": 0.0
+                } for i in range(7)
+            ]
         
         irrigation_data = generate_irrigation_schedule(
             crop_name=matched_crop,
             growth_stage=body.growth_stage,
             base_water_need_mm_week=base_water,
-            weather_forecast=mock_forecast,
+            weather_forecast=forecast,
             ndvi_data=ndvi_data
         )
         result["irrigation"] = irrigation_data
@@ -283,7 +323,12 @@ async def assess_crop_risk(body: AssessRequest, request: Request):
             
         prompt += "Give practical, immediate advice. NO formatting, just plain text."
         
-        advisory_text = gemini_service.generate_response(prompt, context="agriculture")
+        advisory_text = await asyncio.to_thread(
+            gemini_service.generate_response,
+            prompt,
+            context="agriculture",
+            detected_language=body.lang
+        )
         result["ai_advisory"] = advisory_text
     except Exception as e:
         print(f"[HarvestIQ] AI Advisory error: {e}")
@@ -331,14 +376,28 @@ async def detect_location(request: Request):
     if not ip:
         raise HTTPException(status_code=400, detail="Could not determine IP address")
 
-    result = _resolve_location_from_ip(ip)
-    if result:
-        return result
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        result = await _resolve_location_from_ip(ip, client)
+        if result:
+            return result
 
     raise HTTPException(
         status_code=404,
         detail="Could not detect location from IP. Use GPS or manual selection."
     )
+
+
+@router.get("/resolve-gps")
+async def resolve_gps(lat: float, lon: float):
+    """Resolve lat/lon to the nearest district and state in the India database."""
+    nearest = find_nearest_district(lat, lon)
+    if nearest:
+        return nearest
+    raise HTTPException(
+        status_code=404,
+        detail="No matching district found for these coordinates."
+    )
+
 
 
 # ──────────────────────────────────────────────────────────────
@@ -382,12 +441,14 @@ async def get_sms_advisory(
     final_lon = nearest["lon"] if nearest else lon
 
     try:
-        risk_data = compute_risk_assessment(
-            lat=final_lat, lon=final_lon,
-            crop=matched_crop,
-            location_label=location_label,
-            api_key=api_key,
-        )
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            risk_data = await compute_risk_assessment(
+                lat=final_lat, lon=final_lon,
+                crop=matched_crop,
+                location_label=location_label,
+                api_key=api_key,
+                client=client,
+            )
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=f"Weather service error: {str(e)}")
 
@@ -410,7 +471,12 @@ async def get_sms_advisory(
         f"OUTPUT ONLY the SMS text, nothing else. Must be under 160 characters in {lang_name}."
     )
 
-    sms_text = gemini_service.generate_response(prompt, context="agriculture")
+    sms_text = await asyncio.to_thread(
+        gemini_service.generate_response,
+        prompt,
+        context="agriculture",
+        detected_language=lang
+    )
 
     # Enforce 160 char limit
     sms_text = sms_text.strip().replace('"', '').replace("'", "")

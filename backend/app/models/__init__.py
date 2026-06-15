@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Date, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Text, DateTime, Date, ForeignKey, UniqueConstraint, Float, Index
 from sqlalchemy.orm import relationship
 from datetime import datetime
 from app.database import AuthBase, MandiBase
@@ -35,19 +35,40 @@ class User(AuthBase):
 class MandiRate(MandiBase):
     __tablename__ = "mandi_prices"
 
-    id = Column(Integer, primary_key=True, index=True)
-    state = Column(String, index=True)
-    district = Column(String, index=True)
-    market = Column(String, index=True)
-    commodity = Column(String, index=True)
-    variety = Column(String, nullable=True)
-    arrival_date = Column(Date)  # Storing as Date type
+    # Composite Primary Key matching the actual database columns (since no 'id' column exists)
+    state = Column(String, primary_key=True, index=True)
+    district = Column(String, primary_key=True, index=True)
+    market = Column(String, primary_key=True, index=True)
+    commodity = Column(String, primary_key=True, index=True)
+    variety = Column(String, primary_key=True, nullable=True)
+    arrival_date = Column(Date, primary_key=True, index=True)
     
     min_price = Column(Integer)
     max_price = Column(Integer)
     modal_price = Column(Integer)
     
-    # Unique Constraint to prevent duplicates for the same market/commodity/date
+    # Additional index definitions for optimized search queries
     __table_args__ = (
-        UniqueConstraint('state', 'district', 'market', 'commodity', 'arrival_date', name='uix_mandi_rate'),
+        Index('idx_mandi_commodity_state', 'commodity', 'state', 'arrival_date'),
+        Index('idx_mandi_commodity_district', 'commodity', 'district', 'arrival_date'),
+        Index('idx_mandi_commodity_market', 'commodity', 'market', 'arrival_date'),
+        Index('idx_mandi_search', 'commodity', 'state', 'district', 'arrival_date'),
     )
+
+class NDVIReading(MandiBase):
+    __tablename__ = "ndvi_readings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    latitude = Column(Float, index=True)
+    longitude = Column(Float, index=True)
+    state = Column(String, index=True, nullable=True)
+    district = Column(String, index=True, nullable=True)
+    crop_name = Column(String, index=True, nullable=True)
+    date = Column(Date, index=True)
+    ndvi_value = Column(Float)
+
+    # Unique constraint so we don't save duplicate readings for the same coordinates, crop, and date
+    __table_args__ = (
+        UniqueConstraint('latitude', 'longitude', 'crop_name', 'date', name='uix_ndvi_reading'),
+    )
+

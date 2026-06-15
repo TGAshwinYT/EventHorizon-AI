@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback, memo } from 'react';
 import { ShieldAlert, Droplets, Bug, CloudRain, ArrowLeft, AlertTriangle, Loader2, TrendingUp, MapPin, Wifi, List } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import CustomSelect from './CustomSelect';
@@ -74,7 +74,10 @@ const METHOD_LABELS: Record<LocationMethod, { icon: any; label: string; color: s
 /*  RiskDashboard Component                                                  */
 /* ────────────────────────────────────────────────────────────────────────── */
 
-export default function RiskDashboard({ onBack, currentLanguage, labels, defaultState, defaultDistrict }: RiskDashboardProps) {
+const RiskDashboard = memo(function RiskDashboard({ onBack, currentLanguage, labels, defaultState, defaultDistrict }: RiskDashboardProps) {
+
+    // Read saved profile location
+    const profile = useUserStore((s) => s.profile);
 
     // Location tree from API
     const [locationTree, setLocationTree] = useState<Record<string, string[]>>({});
@@ -85,15 +88,24 @@ export default function RiskDashboard({ onBack, currentLanguage, labels, default
 
     const [selectedState, setSelectedState] = useState('');
     const [selectedDistrict, setSelectedDistrict] = useState('');
+    const [place, setPlace] = useState('');
     const [selectedCrop, setSelectedCrop] = useState('Rice');
 
     const [data, setData] = useState<RiskData | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    // Sync from profile when it loads
+    useEffect(() => {
+        if (profile) {
+            if (profile.state) setSelectedState(profile.state);
+            if (profile.district) setSelectedDistrict(profile.district);
+            if (profile.mandal) setPlace(profile.mandal);
+        }
+    }, [profile?.state, profile?.district, profile?.mandal]);
 
-    const states = Object.keys(locationTree).sort();
-    const availableDistricts = selectedState ? (locationTree[selectedState] || []) : [];
+    const states = useMemo(() => Object.keys(locationTree).sort(), [locationTree]);
+    const availableDistricts = useMemo(() => selectedState ? (locationTree[selectedState] || []) : [], [selectedState, locationTree]);
 
     /* ── Fetch location tree ─────────────────────────────── */
     useEffect(() => {
@@ -173,14 +185,15 @@ export default function RiskDashboard({ onBack, currentLanguage, labels, default
             setLocationMethod('manual');
             // Set defaults
             if (!selectedState) {
-                setSelectedState(defaultState || 'Tamil Nadu');
-                setSelectedDistrict(defaultDistrict || 'Erode');
+                setSelectedState(profile?.state || defaultState || 'Tamil Nadu');
+                setSelectedDistrict(profile?.district || defaultDistrict || 'Erode');
+                setPlace(profile?.mandal || '');
             }
         };
 
         detectLocation();
         return () => { cancelled = true; };
-    }, []);
+    }, [profile, defaultState, defaultDistrict]);
 
     /* ── Fetch risk data when location/crop changes ──────── */
     useEffect(() => {
@@ -193,7 +206,7 @@ export default function RiskDashboard({ onBack, currentLanguage, labels, default
             const cacheKey = `hiq_${selectedCrop}_${
                 locationMethod === 'gps' && gpsCoords 
                     ? `gps_${gpsCoords.lat.toFixed(4)}_${gpsCoords.lon.toFixed(4)}` 
-                    : `${selectedState}_${selectedDistrict}`
+                    : `${selectedState}_${selectedDistrict}_${place}`
             }_${currentLanguage || 'en'}`;
 
             // Check if we have cached results in sessionStorage
@@ -231,6 +244,9 @@ export default function RiskDashboard({ onBack, currentLanguage, labels, default
                 } else {
                     payload.state = selectedState;
                     payload.district = selectedDistrict;
+                    if (place && place.trim()) {
+                        payload.place = place.trim();
+                    }
                 }
                 
                 const res = await fetch('/api/harvestiq/assess', {
@@ -265,30 +281,48 @@ export default function RiskDashboard({ onBack, currentLanguage, labels, default
         };
         doFetch();
         return () => { cancelled = true; };
-    }, [selectedState, selectedDistrict, selectedCrop, gpsCoords, locationMethod]);
+    }, [selectedState, selectedDistrict, place, selectedCrop, gpsCoords, locationMethod, currentLanguage]);
 
     /* Switch to manual mode */
-    const switchToManual = () => {
+    const switchToManual = useCallback(() => {
         setGpsCoords(null);
         setLocationMethod('manual');
         if (!selectedState) {
-            if (defaultState) {
-                setSelectedState(defaultState);
-                setSelectedDistrict(defaultDistrict || '');
+            if (profile?.state || defaultState) {
+                setSelectedState(profile?.state || defaultState || 'Tamil Nadu');
+                setSelectedDistrict(profile?.district || defaultDistrict || '');
+                setPlace(profile?.mandal || '');
             } else if (states.length > 0) {
                 setSelectedState(states[0]);
                 const dists = locationTree[states[0]] || [];
                 setSelectedDistrict(dists[0] || '');
+                setPlace('');
             }
         }
-    };
+    }, [defaultState, defaultDistrict, states, locationTree, selectedState, profile]);
+
+    const handleStateChange = useCallback((val: string) => {
+        setSelectedState(val);
+        const nd = locationTree[val] || [];
+        setSelectedDistrict(nd[0] || '');
+        setPlace('');
+        setLocationMethod('manual');
+        setGpsCoords(null);
+    }, [locationTree]);
+
+    const handleDistrictChange = useCallback((val: string) => {
+        setSelectedDistrict(val);
+        setPlace('');
+        setLocationMethod('manual');
+        setGpsCoords(null);
+    }, []);
 
     /* Risk cards config */
-    const riskCards = data ? [
+    const riskCards = useMemo(() => data ? [
         { key: 'drought', icon: Droplets, title: 'Drought Risk', ...data.risks.drought, emoji: '🔥' },
         { key: 'pest', icon: Bug, title: 'Pest Risk', ...data.risks.pest, emoji: '🐛' },
         { key: 'flood', icon: CloudRain, title: 'Flood Risk', ...data.risks.flood, emoji: '🌊' },
-    ] : [];
+    ] : [], [data]);
 
     const methodInfo = METHOD_LABELS[locationMethod];
     const MethodIcon = methodInfo.icon;
@@ -326,28 +360,30 @@ export default function RiskDashboard({ onBack, currentLanguage, labels, default
                                 <CustomSelect
                                     label={labels?.selectState || 'Select State'}
                                     value={selectedState}
-                                    onChange={(val) => {
-                                        setSelectedState(val);
-                                        const nd = locationTree[val] || [];
-                                        setSelectedDistrict(nd[0] || '');
-                                        setLocationMethod('manual');
-                                        setGpsCoords(null);
-                                    }}
+                                    onChange={handleStateChange}
                                     options={states.length > 0 ? states : ['Tamil Nadu']}
                                     accentColor="amber"
                                 />
                                 <CustomSelect
                                     label={labels?.selectDistrict || 'Select District'}
                                     value={selectedDistrict}
-                                    onChange={(val) => {
-                                        setSelectedDistrict(val);
-                                        setLocationMethod('manual');
-                                        setGpsCoords(null);
-                                    }}
+                                    onChange={handleDistrictChange}
                                     options={availableDistricts.length > 0 ? availableDistricts : ['Erode']}
                                     disabled={availableDistricts.length === 0}
                                     accentColor="amber"
                                 />
+                                <div className="flex flex-col gap-1 min-w-[180px]">
+                                    <label className="text-xs text-gray-400 font-medium">
+                                        {labels?.selectPlace || 'Place / Town / Mandal'}
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={place}
+                                        onChange={(e) => setPlace(e.target.value)}
+                                        placeholder="e.g. Sathyamangalam"
+                                        className="bg-[#1A1C23] border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm placeholder-gray-500 focus:border-amber-500/50 focus:outline-none focus:ring-1 focus:ring-amber-500/30 transition-all"
+                                    />
+                                </div>
                             </>
                         )}
                         {locationMethod === 'gps' && (
@@ -495,6 +531,7 @@ export default function RiskDashboard({ onBack, currentLanguage, labels, default
                             lon={gpsCoords?.lon || null}
                             state={selectedState}
                             district={selectedDistrict}
+                            place={place}
                         />
 
                         {/* ── HarvestIQ Irrigation & AI Advisory ──────────────────────── */}
@@ -559,4 +596,6 @@ export default function RiskDashboard({ onBack, currentLanguage, labels, default
             </div>
         </div>
     );
-}
+});
+
+export default RiskDashboard;

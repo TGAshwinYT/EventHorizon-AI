@@ -1,10 +1,12 @@
-import { Sprout, Settings, ScanLine, ShieldAlert } from 'lucide-react';
+import { memo } from 'react';
+import { Sprout, Settings, ScanLine, ShieldAlert, LayoutDashboard } from 'lucide-react';
 import clsx from 'clsx';
 
 interface SidebarProps {
     activeTab: string;
-    setActiveTab: (tab: string) => void;
+    setActiveTab: (tab: any) => void;
     labels: {
+        dashboard?: string;
         agriculture: string;
         scanner: string;
         risk: string;
@@ -12,8 +14,9 @@ interface SidebarProps {
     };
 }
 
-const Sidebar = ({ activeTab, setActiveTab, labels }: SidebarProps) => {
+const Sidebar = memo(({ activeTab, setActiveTab, labels }: SidebarProps) => {
     const menuItems = [
+        { id: 'dashboard', icon: LayoutDashboard, label: labels.dashboard || 'Dashboard' },
         { id: 'agriculture', icon: Sprout, label: labels.agriculture || 'Agriculture' },
         { id: 'scanner', icon: ScanLine, label: labels.scanner || 'Scan' },
         { id: 'risk', icon: ShieldAlert, label: labels.risk || 'HarvestIQ' },
@@ -38,7 +41,7 @@ const Sidebar = ({ activeTab, setActiveTab, labels }: SidebarProps) => {
                     {menuItems.filter(i => i.id !== 'settings').map((item) => {
                         const isActive = activeTab === item.id;
                         const getIconFill = () => {
-                            if (item.id === 'home') return "currentColor";
+                            if (item.id === 'dashboard') return "currentColor";
                             if (item.id === 'agriculture') return "url(#icon-gradient)";
                             return "currentColor";
                         };
@@ -53,9 +56,9 @@ const Sidebar = ({ activeTab, setActiveTab, labels }: SidebarProps) => {
                                 )}
                             >
                                 <item.icon
-                                    className={clsx("w-7 h-7", isActive && item.id === 'home' && "text-white")}
+                                    className={clsx("w-7 h-7", isActive && item.id === 'dashboard' && "text-white")}
                                     fill={getIconFill()}
-                                    stroke={item.id === 'home' ? 'currentColor' : 'none'}
+                                    stroke={item.id === 'dashboard' ? 'currentColor' : 'none'}
                                 />
                                 <span className="text-[11px] font-semibold tracking-wide">{item.label}</span>
                             </button>
@@ -88,6 +91,6 @@ const Sidebar = ({ activeTab, setActiveTab, labels }: SidebarProps) => {
             </nav>
         </aside>
     );
-};
+});
 
 export default Sidebar;

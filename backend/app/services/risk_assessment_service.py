@@ -11,6 +11,7 @@ Crop-specific sensitivity multipliers adjust raw weather-derived scores.
 
 import os
 import requests
+import httpx
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 
@@ -176,12 +177,13 @@ def _generate_advisory(risk_type: str, score: float, day_data: Dict[str, Any], c
 # Main Assessment Function
 # ---------------------------------------------------------------------------
 
-def compute_risk_assessment(
+async def compute_risk_assessment(
     lat: float,
     lon: float,
     crop: str,
     location_label: str,
     api_key: str,
+    client: Optional[httpx.AsyncClient] = None,
 ) -> Dict[str, Any]:
     """
     Fetch 5-day forecast from OpenWeatherMap and compute daily risk scores.
@@ -193,8 +195,13 @@ def compute_risk_assessment(
         f"http://api.openweathermap.org/data/2.5/forecast"
         f"?lat={lat}&lon={lon}&appid={api_key}&units=metric"
     )
-    response = requests.get(forecast_url, timeout=15)
-    if not response.ok:
+    if client is None:
+        async with httpx.AsyncClient(timeout=15.0) as local_client:
+            response = await local_client.get(forecast_url)
+    else:
+        response = await client.get(forecast_url)
+
+    if response.status_code != 200:
         raise RuntimeError(f"Weather API error: {response.status_code}")
 
     forecast_data = response.json()
@@ -212,6 +219,7 @@ def compute_risk_assessment(
                 "wind_speeds": [],
                 "pops": [],
                 "pressures": [],
+                "rains": [],
                 "date_obj": datetime.strptime(date_str, "%Y-%m-%d"),
             }
 
@@ -221,6 +229,7 @@ def compute_risk_assessment(
         bucket["wind_speeds"].append(item["wind"]["speed"] * 3.6)  # m/s → km/h
         bucket["pops"].append(item.get("pop", 0) * 100)            # 0-1 → 0-100
         bucket["pressures"].append(item["main"]["pressure"])
+        bucket["rains"].append(item.get("rain", {}).get("3h", 0.0))
 
     # 3. Build daily summary dicts
     today = datetime.now().date()
@@ -231,7 +240,7 @@ def compute_risk_assessment(
         bucket = daily_buckets[date_str]
         if bucket["date_obj"].date() < today:
             continue
-        if len(daily_summaries) >= 5:
+        if len(daily_summaries) >= 7: # Collect up to 7 days of forecast details
             break
 
         summary = {
@@ -242,6 +251,7 @@ def compute_risk_assessment(
             "avg_wind_speed": sum(bucket["wind_speeds"]) / len(bucket["wind_speeds"]),
             "avg_pop": sum(bucket["pops"]) / len(bucket["pops"]),
             "avg_pressure": sum(bucket["pressures"]) / len(bucket["pressures"]),
+            "total_rain": sum(bucket["rains"]),
         }
         daily_summaries.append(summary)
 
@@ -322,4 +332,13 @@ def compute_risk_assessment(
         },
         "weekly_trend": weekly_trend,
         "crop_sensitivity": sensitivity,
+        "weather_forecast": [
+            {
+                "date": day["date_str"],
+                "day_name": day["date_obj"].strftime("%A"),
+                "temp_max": round(day["temp_max"], 1),
+                "rain_mm": round(day["total_rain"], 1),
+                "pop": round(day["avg_pop"], 1)
+            } for day in daily_summaries
+        ]
     }

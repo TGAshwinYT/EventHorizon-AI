@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo, useCallback, useMemo } from 'react';
 import { Save, User, Globe, Download, Trash2, ArrowLeft, History } from 'lucide-react';
 import LanguageSelector from '../../components/LanguageSelector'; // Reuse existing component
 import CustomSelect from '../../components/CustomSelect';
@@ -64,15 +64,15 @@ const MobileSettings = ({ onBack, currentLanguage, onLanguageChange, username, d
             .catch(() => { /* ignore */ });
     }, []);
 
-    const states = Object.keys(locationTree).sort();
-    const availableDistricts = editState ? (locationTree[editState] || []) : [];
+    const states = useMemo(() => Object.keys(locationTree).sort(), [locationTree]);
+    const availableDistricts = useMemo(() => editState ? (locationTree[editState] || []) : [], [editState, locationTree]);
 
     // Change Password states
     const [currentPwd, setCurrentPwd] = useState('');
     const [newPwd, setNewPwd] = useState('');
     const [confirmPwd, setConfirmPwd] = useState('');
 
-    const handleSaveProfile = async () => {
+    const handleSaveProfile = useCallback(async () => {
         try {
             const res = await fetch('/api/auth/profile', {
                 method: 'PUT',
@@ -106,9 +106,9 @@ const MobileSettings = ({ onBack, currentLanguage, onLanguageChange, username, d
             setStatus('Error updating profile');
         }
         setTimeout(() => setStatus(''), 2000);
-    };
+    }, [token, newDisplayName, newAvatar, editState, editDistrict, editMandal, phone, smsEnabled, cooldownDays, onUpdateProfile]);
 
-    const handleChangePassword = async () => {
+    const handleChangePassword = useCallback(async () => {
         if (newPwd !== confirmPwd) {
             alert("New passwords do not match!");
             return;
@@ -139,9 +139,9 @@ const MobileSettings = ({ onBack, currentLanguage, onLanguageChange, username, d
             alert('Error updating password');
         }
         setTimeout(() => setStatus(''), 2000);
-    };
+    }, [token, newPwd, confirmPwd, currentPwd]);
 
-    const handleDownloadData = () => {
+    const handleDownloadData = useCallback(() => {
         const data = {
             username,
             language: currentLanguage
@@ -157,7 +157,7 @@ const MobileSettings = ({ onBack, currentLanguage, onLanguageChange, username, d
         URL.revokeObjectURL(url);
         setStatus('Data downloaded!');
         setTimeout(() => setStatus(''), 2000);
-    };
+    }, [username, currentLanguage]);
 
     return (
         <div className="w-full w-full pt-4 backdrop-blur-md bg-black/40 rounded-3xl p-6 border border-white/10 text-white h-full flex flex-col shadow-2xl animate-fade-in">
@@ -273,7 +273,7 @@ const MobileSettings = ({ onBack, currentLanguage, onLanguageChange, username, d
                                         and eligibility alerts for newly active government schemes.
                                     </p>
                                     
-                                    <div className="grid grid-cols-1 gap-5">
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end">
                                         <div>
                                             <label className="block text-sm text-gray-400 mb-1.5 font-medium">Phone Number</label>
                                             <input
@@ -300,7 +300,7 @@ const MobileSettings = ({ onBack, currentLanguage, onLanguageChange, username, d
                                                 </select>
                                             </div>
                                         </div>
-                                        <div className="flex items-center pt-2 pl-1">
+                                        <div className="flex items-center h-[50px] pl-2">
                                             <label className="flex items-center gap-3 cursor-pointer select-none">
                                                 <input
                                                     type="checkbox"
@@ -479,4 +479,4 @@ const MobileSettings = ({ onBack, currentLanguage, onLanguageChange, username, d
     );
 };
 
-export default MobileSettings;
+export default memo(Settings);

@@ -11,6 +11,8 @@ SARVAM_API_KEY = os.getenv("SARVAM_API_KEY")
 class TTSFallbackService:
     def __init__(self):
         self.sarvam_enabled = bool(SARVAM_API_KEY)
+        # Persistent HTTP session for connection pooling (reuses TCP+TLS)
+        self._session = requests.Session()
 
         if self.sarvam_enabled:
             print("[TTS FALLBACK] Sarvam AI Initialized successfully (Model: bulbul:v3).")
@@ -79,7 +81,7 @@ class TTSFallbackService:
                 "model": "bulbul:v3"
             }
 
-            response = requests.post(url, headers=headers, json=payload, timeout=12)
+            response = self._session.post(url, headers=headers, json=payload, timeout=8)
             
             if response.status_code == 200:
                 data = response.json()

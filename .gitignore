@@ -24,3 +24,9 @@ dist/
 # Local database
 backend/app.db
 *.db
+
+# Generated audio
+backend/audio_output/
+
+# External Tools / binaries
+Tools/

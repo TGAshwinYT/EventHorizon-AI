@@ -94,7 +94,7 @@ export const ChatHistory: React.FC = () => {
                     {formatDate(session.timestamp)}
                   </span>
                   <span className="text-[9px] uppercase font-extrabold text-amber-500 bg-amber-500/5 px-2 py-0.5 rounded-md border border-amber-500/10">
-                    {session.language === 'ta-en' ? 'Tanglish' : session.language === 'hi-en' ? 'Hinglish' : session.language.toUpperCase()}
+                    {session.language.toUpperCase()}
                   </span>
                   <span className="text-xxs text-slate-500">
                     {session.messages.length} messages

@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react';
-import { CloudRain, TrendingUp, Search } from 'lucide-react';
+import { CloudRain, TrendingUp, Search, MapPin } from 'lucide-react';
 import MobileMandiForecasting from './MobileMandiForecasting';
 import MobileWeatherForecast from './MobileWeatherForecast';
 import CustomSelect from '../../components/CustomSelect';
+import { useUserStore } from '../../store/userStore';
 
 interface ForecastingInterfaceProps {
     labels?: any;
@@ -10,11 +11,13 @@ interface ForecastingInterfaceProps {
 
 const MobileForecastingInterface = ({ labels }: ForecastingInterfaceProps) => {
     const [activeTab, setActiveTab] = useState<'mandi' | 'weather'>('mandi');
+    const profile = useUserStore((s) => s.profile);
 
     // Selection State
     const [crop, setCrop] = useState('Tomato');
-    const [state, setState] = useState('Tamil Nadu');
-    const [district, setDistrict] = useState('');
+    const [state, setState] = useState(profile?.state || 'Tamil Nadu');
+    const [district, setDistrict] = useState(profile?.district || '');
+    const [place, setPlace] = useState(profile?.mandal || '');
     const [availableDistricts, setAvailableDistricts] = useState<string[]>([]);
     const [loadingDistricts, setLoadingDistricts] = useState(false);
 
@@ -118,6 +121,22 @@ const MobileForecastingInterface = ({ labels }: ForecastingInterfaceProps) => {
                                 disabled={loadingDistricts}
                                 accentColor={activeTab === 'mandi' ? 'emerald' : 'blue'}
                             />
+                            {/* Place / Town / Mandal — only shown in Weather tab */}
+                            {activeTab === 'weather' && (
+                                <div className="flex flex-col gap-1">
+                                    <label className="text-xs text-gray-400 font-medium ml-1">
+                                        <MapPin className="w-3 h-3 inline mr-1" />
+                                        Place / Town / Mandal
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={place}
+                                        onChange={(e) => setPlace(e.target.value)}
+                                        placeholder="e.g. Sathyamangalam"
+                                        className="bg-[#1A1C23] border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm placeholder-gray-500 focus:border-blue-500/50 focus:outline-none focus:ring-1 focus:ring-blue-500/30 transition-all"
+                                    />
+                                </div>
+                            )}
                         </div>
 
                         <button
@@ -134,7 +153,7 @@ const MobileForecastingInterface = ({ labels }: ForecastingInterfaceProps) => {
                             <MobileMandiForecasting crop={submittedCrop} state={submittedState} labels={labels} />
                         </div>
                     ) : (
-                        <MobileWeatherForecast state={state} district={district} />
+                        <MobileWeatherForecast state={state} district={district} place={place} />
                     )}
                 </div>
             </div>

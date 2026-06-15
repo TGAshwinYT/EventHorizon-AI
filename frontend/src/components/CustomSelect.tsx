@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronDown, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -18,7 +18,7 @@ interface CustomSelectProps {
     accentColor?: string; // 'purple', 'emerald', 'blue', etc.
 }
 
-const CustomSelect = ({ 
+const CustomSelect = memo(({ 
     value, 
     onChange, 
     options, 
@@ -215,6 +215,6 @@ const CustomSelect = ({
             )}
         </div>
     );
-};
+});
 
 export default CustomSelect;

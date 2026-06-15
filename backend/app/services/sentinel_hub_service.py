@@ -11,6 +11,7 @@ Uses OAuth2 client_credentials flow — no extra libraries needed.
 import os
 import time
 import requests
+import httpx
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 from dotenv import load_dotenv
@@ -69,7 +70,7 @@ def is_sentinel_hub_configured() -> bool:
     return bool(cid) and bool(secret)
 
 
-def _get_access_token() -> Optional[str]:
+async def _get_access_token(client: httpx.AsyncClient) -> Optional[str]:
     """Get OAuth2 access token using client_credentials flow."""
     # Check cache
     if _token_cache["token"] and time.time() < _token_cache["expires_at"] - 60:
@@ -80,7 +81,7 @@ def _get_access_token() -> Optional[str]:
         return None
 
     try:
-        res = requests.post(
+        res = await client.post(
             TOKEN_URL,
             data={
                 "grant_type": "client_credentials",
@@ -89,7 +90,7 @@ def _get_access_token() -> Optional[str]:
             },
             timeout=10,
         )
-        if res.ok:
+        if res.status_code == 200:
             data = res.json()
             _token_cache["token"] = data["access_token"]
             _token_cache["expires_at"] = time.time() + data.get("expires_in", 3600)
@@ -115,11 +116,12 @@ def _make_bbox(lat: float, lon: float, radius_km: float = 0.5):
     return [lon - lon_offset, lat - lat_offset, lon + lon_offset, lat + lat_offset]
 
 
-def fetch_sentinel_ndvi(
+async def fetch_sentinel_ndvi(
     lat: float,
     lon: float,
     days_back: int = 90,
     interval_days: int = 5,
+    client: Optional[httpx.AsyncClient] = None,
 ) -> Optional[Dict[str, Any]]:
     """
     Fetch NDVI time series from Sentinel Hub Statistical API.
@@ -128,6 +130,7 @@ def fetch_sentinel_ndvi(
         lat, lon: Location coordinates
         days_back: How many days of history (default 90)
         interval_days: Aggregation interval in days (default 5)
+        client: Optional shared httpx AsyncClient
 
     Returns:
         Parsed NDVI data dict or None on failure.
@@ -137,7 +140,22 @@ def fetch_sentinel_ndvi(
     if cached:
         return cached
 
-    token = _get_access_token()
+    if client is None:
+        async with httpx.AsyncClient(timeout=30.0) as local_client:
+            return await _fetch_sentinel_ndvi_impl(lat, lon, days_back, interval_days, local_client, cache_key)
+    else:
+        return await _fetch_sentinel_ndvi_impl(lat, lon, days_back, interval_days, client, cache_key)
+
+
+async def _fetch_sentinel_ndvi_impl(
+    lat: float,
+    lon: float,
+    days_back: int,
+    interval_days: int,
+    client: httpx.AsyncClient,
+    cache_key: str,
+) -> Optional[Dict[str, Any]]:
+    token = await _get_access_token(client)
     if not token:
         return None
 
@@ -173,7 +191,7 @@ def fetch_sentinel_ndvi(
     }
 
     try:
-        res = requests.post(
+        res = await client.post(
             STATS_URL,
             headers={
                 "Authorization": f"Bearer {token}",
@@ -182,7 +200,7 @@ def fetch_sentinel_ndvi(
             json=payload,
             timeout=30,
         )
-        if res.ok:
+        if res.status_code == 200:
             data = res.json()
             result = _parse_stats_response(data, lat, lon)
             if result:

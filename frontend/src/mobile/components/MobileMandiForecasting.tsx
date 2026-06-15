@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo, useMemo } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { Loader2, TrendingUp, AlertTriangle } from 'lucide-react';
 
@@ -15,7 +15,7 @@ interface MandiForecastingProps {
     labels?: any;
 }
 
-const MobileMandiForecasting = ({ crop, state }: MandiForecastingProps) => {
+const MobileMandiForecasting = memo(({ crop, state }: MandiForecastingProps) => {
     const [data, setData] = useState<ForecastData[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -67,27 +67,30 @@ const MobileMandiForecasting = ({ crop, state }: MandiForecastingProps) => {
         </div>
     );
 
-    const historyData = data.filter(d => !d.isForecast);
-    const latestHistory = historyData.length > 0 ? historyData[historyData.length - 1] : null;
+    const { minPrice, maxPrice, chartData, latestHistory } = useMemo(() => {
+        const historyData = data.filter(d => !d.isForecast);
+        const latestHistory = historyData.length > 0 ? historyData[historyData.length - 1] : null;
 
-    const prices = data.map(d => d.price);
-    const minPrice = Math.max(0, Math.min(...prices) * 0.95);
-    const maxPrice = Math.max(...prices) * 1.05;
+        const prices = data.map(d => d.price);
+        const minPrice = Math.max(0, Math.min(...prices) * 0.95);
+        const maxPrice = Math.max(...prices) * 1.05;
 
-    // Create a unified data structure for the chart
-    const chartData = data.map(item => ({
-        ...item,
-        historyPrice: !item.isForecast ? item.price : null,
-        forecastPrice: item.isForecast ? item.price : (item === latestHistory ? item.price : null)
-    }));
+        // Create a unified data structure for the chart
+        const chartData = data.map(item => ({
+            ...item,
+            historyPrice: !item.isForecast ? item.price : null,
+            forecastPrice: item.isForecast ? item.price : (item === latestHistory ? item.price : null)
+        }));
 
-    // If we have history, the first point of forecast should be the last point of history
-    if (latestHistory) {
-        const lastHistoryIndex = chartData.findIndex(d => d.date === latestHistory.date && !d.isForecast);
-        if (lastHistoryIndex !== -1) {
-            chartData[lastHistoryIndex].forecastPrice = latestHistory.price;
+        // If we have history, the first point of forecast should be the last point of history
+        if (latestHistory) {
+            const lastHistoryIndex = chartData.findIndex(d => d.date === latestHistory.date && !d.isForecast);
+            if (lastHistoryIndex !== -1) {
+                chartData[lastHistoryIndex].forecastPrice = latestHistory.price;
+            }
         }
-    }
+        return { minPrice, maxPrice, chartData, latestHistory };
+    }, [data]);
 
     return (
         <div className="w-full bg-white/5 rounded-2xl p-4 border border-white/10 relative overflow-hidden flex flex-col">
@@ -172,6 +175,6 @@ const MobileMandiForecasting = ({ crop, state }: MandiForecastingProps) => {
             </div>
         </div>
     );
-};
+});
 
 export default MobileMandiForecasting;

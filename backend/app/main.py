@@ -15,7 +15,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from app.routers import market, auth, weather, scanner, harvestiq, satellite, assistant, research, schemes
+from app.routers import market, auth, weather, scanner, harvestiq, satellite, assistant, research, schemes, mandi_prices, news
 from app.database import auth_engine, mandi_engine, AuthBase, MandiBase
 
 ml_models = {}
@@ -90,6 +90,14 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[!] Failed to shut down scheduler: {e}")
         
+    # Shutdown Executor
+    try:
+        from app.services.executor_service import shutdown_executor
+        shutdown_executor()
+        print("[-] Process pool executor shut down.")
+    except Exception as e:
+        print(f"[!] Failed to shut down executor: {e}")
+        
     ml_models.clear()
 
 app = FastAPI(title="EventHorizon AI Backend", lifespan=lifespan)
@@ -97,7 +105,7 @@ app = FastAPI(title="EventHorizon AI Backend", lifespan=lifespan)
 app.add_middleware(
 
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -120,6 +128,10 @@ app.include_router(assistant.router, prefix='/api/assistant', tags=["Assistant"]
 app.include_router(research.router, prefix='/api/assistant', tags=["Research"])
 # Schemes — Dynamic AI-powered government schemes
 app.include_router(schemes.router, prefix='/api/schemes', tags=["Schemes"])
+# Mandi — Recent and Forecast mandi prices
+app.include_router(mandi_prices.router, prefix='/api/mandi', tags=["Mandi"])
+# News — Daily agricultural news
+app.include_router(news.router, prefix='/api/news', tags=["News"])
 
 @app.get('/')
 async def root():

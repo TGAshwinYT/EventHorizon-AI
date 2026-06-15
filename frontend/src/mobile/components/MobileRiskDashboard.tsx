@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback, memo } from 'react';
 import { ShieldAlert, Droplets, Bug, CloudRain, ArrowLeft, AlertTriangle, Loader2, TrendingUp, MapPin, Wifi, List } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import CustomSelect from '../../components/CustomSelect';
@@ -47,21 +47,31 @@ function riskColor(s: number) { return s < 25 ? '#22c55e' : s < 50 ? '#f59e0b' :
 function riskGlow(s: number) { return s < 25 ? 'rgba(34,197,94,0.2)' : s < 50 ? 'rgba(245,158,11,0.2)' : s < 75 ? 'rgba(239,68,68,0.2)' : 'rgba(168,85,247,0.3)'; }
 
 /* ── Component ─────────────────────────────────────── */
-export default function MobileRiskDashboard({ onBack, labels }: Props) {
+const MobileRiskDashboard = memo(function MobileRiskDashboard({ onBack, labels }: Props) {
+    const profile = useUserStore((s) => s.profile);
+
     const [locationTree, setLocationTree] = useState<Record<string, string[]>>({});
     const [locMethod, setLocMethod] = useState<LocMethod>('detecting');
     const [gpsCoords, setGpsCoords] = useState<{ lat: number; lon: number } | null>(null);
     const [selectedState, setSelectedState] = useState('');
     const [selectedDistrict, setSelectedDistrict] = useState('');
+    const [place, setPlace] = useState('');
     const [selectedCrop, setSelectedCrop] = useState('Rice');
     const [data, setData] = useState<RiskData | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    // Sync from profile when it loads
+    useEffect(() => {
+        if (profile) {
+            if (profile.state) setSelectedState(profile.state);
+            if (profile.district) setSelectedDistrict(profile.district);
+            if (profile.mandal) setPlace(profile.mandal);
+        }
+    }, [profile]);
 
-
-    const states = Object.keys(locationTree).sort();
-    const districts = selectedState ? (locationTree[selectedState] || []) : [];
+    const states = useMemo(() => Object.keys(locationTree).sort(), [locationTree]);
+    const districts = useMemo(() => selectedState ? (locationTree[selectedState] || []) : [], [selectedState, locationTree]);
 
     useEffect(() => {
         fetch('/api/harvestiq/locations').then(r => r.ok ? r.json() : {}).then(t => setLocationTree(t)).catch(() => {});
@@ -114,7 +124,11 @@ export default function MobileRiskDashboard({ onBack, labels }: Props) {
             if (cancelled) return;
             // Layer 3: Manual
             setLocMethod('manual');
-            if (!selectedState) { setSelectedState('Tamil Nadu'); setSelectedDistrict('Erode'); }
+            if (!selectedState) {
+                setSelectedState(profile?.state || 'Tamil Nadu');
+                setSelectedDistrict(profile?.district || 'Erode');
+                setPlace(profile?.mandal || '');
+            }
         };
         detect();
         return () => { cancelled = true; };
@@ -130,7 +144,7 @@ export default function MobileRiskDashboard({ onBack, labels }: Props) {
             const cacheKey = `hiq_${selectedCrop}_${
                 locMethod === 'gps' && gpsCoords 
                     ? `gps_${gpsCoords.lat.toFixed(4)}_${gpsCoords.lon.toFixed(4)}` 
-                    : `${selectedState}_${selectedDistrict}`
+                    : `${selectedState}_${selectedDistrict}_${place}`
             }_${labels?.lang || 'en'}`;
 
             // Check sessionStorage
@@ -156,9 +170,15 @@ export default function MobileRiskDashboard({ onBack, labels }: Props) {
             });
             setError(null);
             try {
-                const payload: any = { crop_name: selectedCrop, lang: labels?.lang || 'en' };
+                const payload: any = { crop_name: selectedCrop, lang: labels?.lang || 'en', growth_stage: 'Vegetative' };
                 if (locMethod === 'gps' && gpsCoords) { payload.lat = gpsCoords.lat; payload.lon = gpsCoords.lon; }
-                else { payload.state = selectedState; payload.district = selectedDistrict; }
+                else {
+                    payload.state = selectedState;
+                    payload.district = selectedDistrict;
+                    if (place && place.trim()) {
+                        payload.place = place.trim();
+                    }
+                }
                 
                 const r = await fetch('/api/harvestiq/assess', {
                     method: 'POST',
@@ -192,18 +212,43 @@ export default function MobileRiskDashboard({ onBack, labels }: Props) {
         };
         doFetch();
         return () => { cancelled = true; };
-    }, [selectedState, selectedDistrict, selectedCrop, gpsCoords, locMethod]);
+    }, [selectedState, selectedDistrict, place, selectedCrop, gpsCoords, locMethod, labels?.lang]);
 
-    const switchToManual = () => {
+    const switchToManual = useCallback(() => {
         setGpsCoords(null); setLocMethod('manual');
-        if (!selectedState && states.length > 0) { setSelectedState(states[0]); setSelectedDistrict((locationTree[states[0]] || [])[0] || ''); }
-    };
+        if (!selectedState) {
+            if (profile?.state) {
+                setSelectedState(profile.state);
+                setSelectedDistrict(profile.district || '');
+                setPlace(profile.mandal || '');
+            } else if (states.length > 0) {
+                setSelectedState(states[0]);
+                setSelectedDistrict((locationTree[states[0]] || [])[0] || '');
+                setPlace('');
+            }
+        }
+    }, [states, locationTree, selectedState, profile]);
 
-    const riskCards = data ? [
+    const handleStateChange = useCallback((v: string) => {
+        setSelectedState(v);
+        setSelectedDistrict((locationTree[v] || [])[0] || '');
+        setPlace('');
+        setLocMethod('manual');
+        setGpsCoords(null);
+    }, [locationTree]);
+
+    const handleDistrictChange = useCallback((v: string) => {
+        setSelectedDistrict(v);
+        setPlace('');
+        setLocMethod('manual');
+        setGpsCoords(null);
+    }, []);
+
+    const riskCards = useMemo(() => data ? [
         { key: 'drought', icon: Droplets, title: 'Drought', ...data.risks.drought, emoji: '🔥' },
         { key: 'pest', icon: Bug, title: 'Pest', ...data.risks.pest, emoji: '🐛' },
         { key: 'flood', icon: CloudRain, title: 'Flood', ...data.risks.flood, emoji: '🌊' },
-    ] : [];
+    ] : [], [data]);
 
     const methodIcons: Record<LocMethod, { icon: any; label: string; color: string }> = {
         detecting: { icon: Loader2, label: 'Detecting…', color: 'text-blue-400' },
@@ -237,17 +282,31 @@ export default function MobileRiskDashboard({ onBack, labels }: Props) {
                 {/* Selectors */}
                 <div className="flex flex-col gap-3">
                     {(locMethod === 'manual' || locMethod === 'ip') && (
-                        <div className="flex gap-3">
-                            <div className="flex-1">
-                                <CustomSelect label={labels?.selectState || 'State'} value={selectedState}
-                                    onChange={(v) => { setSelectedState(v); setSelectedDistrict((locationTree[v] || [])[0] || ''); setLocMethod('manual'); setGpsCoords(null); }}
-                                    options={states.length > 0 ? states : ['Tamil Nadu']} accentColor="amber" />
+                        <div className="flex flex-col gap-3">
+                            <div className="flex gap-3">
+                                <div className="flex-1">
+                                    <CustomSelect label={labels?.selectState || 'State'} value={selectedState}
+                                        onChange={handleStateChange}
+                                        options={states.length > 0 ? states : ['Tamil Nadu']} accentColor="amber" />
+                                </div>
+                                <div className="flex-1">
+                                    <CustomSelect label={labels?.selectDistrict || 'District'} value={selectedDistrict}
+                                        onChange={handleDistrictChange}
+                                        options={districts.length > 0 ? districts : ['Erode']}
+                                        disabled={districts.length === 0} accentColor="amber" />
+                                </div>
                             </div>
-                            <div className="flex-1">
-                                <CustomSelect label={labels?.selectDistrict || 'District'} value={selectedDistrict}
-                                    onChange={(v) => { setSelectedDistrict(v); setLocMethod('manual'); setGpsCoords(null); }}
-                                    options={districts.length > 0 ? districts : ['Erode']}
-                                    disabled={districts.length === 0} accentColor="amber" />
+                            <div className="flex flex-col gap-1 w-full">
+                                <label className="text-xs text-gray-400 font-medium">
+                                    {labels?.selectPlace || 'Place / Town / Mandal'}
+                                </label>
+                                <input
+                                    type="text"
+                                    value={place}
+                                    onChange={(e) => setPlace(e.target.value)}
+                                    placeholder="e.g. Sathyamangalam"
+                                    className="bg-[#1A1C23] border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm placeholder-gray-500 focus:border-amber-500/50 focus:outline-none focus:ring-1 focus:ring-amber-500/30 transition-all"
+                                />
                             </div>
                         </div>
                     )}
@@ -377,6 +436,7 @@ export default function MobileRiskDashboard({ onBack, labels }: Props) {
                             lon={gpsCoords?.lon || null}
                             state={selectedState}
                             district={selectedDistrict}
+                            place={place}
                         />
 
                         {/* Irrigation Schedule */}
@@ -432,4 +492,6 @@ export default function MobileRiskDashboard({ onBack, labels }: Props) {
             </div>
         </div>
     );
-}
+});
+
+export default MobileRiskDashboard;

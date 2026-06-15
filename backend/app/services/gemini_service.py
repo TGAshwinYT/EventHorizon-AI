@@ -26,8 +26,8 @@ GEMINI_FALLBACK_MODELS = [
 
 # Preset names mapped to Natural Languages
 LANGUAGE_NAMES = {
-    "ta": "Tamil (தமிழ்) — or Tanglish if the user mixed Tamil and English",
-    "hi": "Hindi (हिंदी) — or Hinglish if the user mixed Hindi and English",
+    "ta": "Tamil (தமிழ்)",
+    "hi": "Hindi (हिंदी)",
     "te": "Telugu (తెలుగు)",
     "kn": "Kannada (ಕನ್ನಡ)",
     "ml": "Malayalam (മലയാളം)",
@@ -35,7 +35,7 @@ LANGUAGE_NAMES = {
     "mr": "Marathi (മরাठी)",
     "gu": "Gujarati (ગુજરાતી)",
     "pa": "Punjabi (ਪੰਜਾਬੀ)",
-    "en": "English — or Tanglish/Hinglish if the user mixed languages",
+    "en": "English",
 }
 
 def build_system_prompt(context: str = "general", detected_language: str = "en") -> str:
@@ -46,10 +46,8 @@ def build_system_prompt(context: str = "general", detected_language: str = "en")
 
     # Map detected language to specific conversational dialetic style guide
     lang_mapping = {
-        "ta": "Tamil (Pure Tamil: 'நண்பா, கவலைப்படாதே! நான் சொல்றேன்...')",
-        "ta-en": "Tanglish (Tamil + English mix: 'Bro, unga crop ku enna problem? Chill, naan solren!')",
-        "hi": "Hindi (Pure Hindi: 'भाई, तुम्हारी फसल का क्या हाल है?')",
-        "hi-en": "Hinglish (Hindi + English mix: 'Bhai, tension mat le, sab sort ho jayega!')",
+        "ta": "Tamil ('நண்பா, கவலைப்படாதே! நான் சொல்றேன்...')",
+        "hi": "Hindi ('भाई, तुम्हारी फसल का क्या हाल है?')",
         "te": "Telugu ('అన్నా, మీ పంటకు ఏమైనా సమస్య ఉందా?')",
         "kn": "Kannada ('ಅಣ್ಣ, ನಿಮ್ಮ ಬೆಳೆಗೆ ಏನು தೊಂದರೆ?' / 'ಅಣ್ಣ, ನಿಮ್ಮ ಬೆಳೆಗೆ ಏನು ತೊಂದರೆ?')",
         "ml": "Malayalam ('ചേട്ടാ, എന്ത് പ്രശ്നം?')",
@@ -75,7 +73,7 @@ You are NOT:
 ## HOW YOU TALK
 You MUST talk in: {target_lang_instruction}
 
-Always match the user's language. If they switch language mid-chat, you switch too. If they write Tanglish, you reply Tanglish. Feel it naturally like a real person.
+Always match the user's language. If they switch language mid-chat, you switch too. Feel it naturally like a real person.
 
 ## WHAT YOU KNOW
 You are an expert in:
@@ -168,6 +166,9 @@ Voice mode → Plain flowing sentences only, no special characters
 
 class GeminiService:
     def __init__(self):
+        # Persistent HTTP session for connection pooling (reuses TCP+TLS)
+        self._session = requests.Session()
+        self._session.headers.update({"Content-Type": "application/json"})
         if not GEMINI_API_KEY:
             print("[GEMINI] Warning: GEMINI_API_KEY not found. Running in mock mode.")
             self.enabled = False
@@ -201,7 +202,7 @@ class GeminiService:
                     "system_instruction": {"parts": [{"text": system_prompt}]}
                 }
                 
-                response = requests.post(url, headers={"Content-Type": "application/json"}, json=payload, timeout=12)
+                response = self._session.post(url, json=payload, timeout=12)
                 
                 if response.status_code == 200:
                     result = response.json()
@@ -212,6 +213,66 @@ class GeminiService:
                 print(f"[GEMINI BRAIN EXCEPTION] Model {model} failed: {e}")
 
         return "நண்பா, ஏதோ சின்ன நெட்வொர்க் பிரச்சனை. மீண்டும் ஒருமுறை சொல்லுங்க! (Network error, please try again)"
+
+    def generate_response_stream(
+        self,
+        message: str,
+        context: str = "general",
+        detected_language: str = "en",
+        history: Optional[List[Dict[str, str]]] = None,
+    ):
+        """
+        Stream a text response from Gemini using primary and fallback models.
+        Yields text chunks.
+        """
+        if not self.enabled:
+            mock_res = self._mock_response(message)
+            for chunk in mock_res.split(" "):
+                yield chunk + " "
+            return
+
+        system_prompt = build_system_prompt(context, detected_language)
+        contents = self._build_contents_payload(message, history)
+        
+        models_to_try = [GEMINI_BRAIN_MODEL] + GEMINI_FALLBACK_MODELS
+
+        for model in models_to_try:
+            try:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:streamGenerateContent?key={GEMINI_API_KEY}&alt=sse"
+                payload = {
+                    "contents": contents,
+                    "system_instruction": {"parts": [{"text": system_prompt}]}
+                }
+                
+                response = self._session.post(
+                    url, 
+                    json=payload, 
+                    timeout=12,
+                    stream=True
+                )
+                
+                if response.status_code == 200:
+                    for line in response.iter_lines():
+                        if line:
+                            decoded_line = line.decode('utf-8')
+                            if decoded_line.startswith("data: "):
+                                try:
+                                    json_data = json.loads(decoded_line[6:])
+                                    parts = json_data.get('candidates', [{}])[0].get('content', {}).get('parts', [{}])
+                                    for part in parts:
+                                        text = part.get('text', '')
+                                        if text:
+                                            yield text
+                                except Exception as json_err:
+                                    print(f"[GEMINI STREAM CHUNK ERROR] {json_err} on line {decoded_line}")
+                    # Successfully streamed from this model, so exit
+                    return
+                else:
+                    print(f"[GEMINI BRAIN STREAM WARNING] Model {model} failed with {response.status_code}. Trying next model...")
+            except Exception as e:
+                print(f"[GEMINI BRAIN STREAM EXCEPTION] Model {model} failed: {e}")
+
+        yield "நண்பா, ஏதோ சின்ன நெட்வொர்க் பிரச்சனை. மீண்டும் ஒருமுறை சொல்லுங்க! (Network error, please try again)"
 
     def generate_tts(self, text: str, language: str = "en") -> Optional[bytes]:
         """
@@ -247,7 +308,7 @@ class GeminiService:
             try:
                 url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}"
                 print(f"[GEMINI TTS] Requesting speech audio from model: {model}...")
-                response = requests.post(url, headers={"Content-Type": "application/json"}, json=payload, timeout=15)
+                response = self._session.post(url, json=payload, timeout=10)
                 
                 if response.status_code == 200:
                     result = response.json()

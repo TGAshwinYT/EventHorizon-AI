@@ -1,5 +1,4 @@
 import os
-import tempfile
 from groq import Groq
 from dotenv import load_dotenv
 
@@ -26,23 +25,13 @@ class GroqService:
                 "language_detected": "ta"
             }
 
-        # Determine temp file suffix
-        suffix = os.path.splitext(filename)[1] or ".webm"
-        temp_path = None
-        
         try:
-            # Write audio bytes to a temp file
-            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temp_file:
-                temp_file.write(audio_bytes)
-                temp_path = temp_file.name
-
-            # Send file to Groq Whisper
-            with open(temp_path, "rb") as file_to_transcribe:
-                transcription = self.client.audio.transcriptions.create(
-                    file=(filename, file_to_transcribe.read()),
-                    model="whisper-large-v3",
-                    response_format="verbose_json"
-                )
+            # Send audio bytes directly to Groq Whisper (in-memory, no disk I/O)
+            transcription = self.client.audio.transcriptions.create(
+                file=(filename, audio_bytes),
+                model="whisper-large-v3",
+                response_format="verbose_json"
+            )
 
             transcript = transcription.text
             # Fetch detected language (or fallback to 'en')
@@ -61,12 +50,5 @@ class GroqService:
                 "language_detected": "en",
                 "error": str(e)
             }
-        finally:
-            # Ensure cleanup of temp file
-            if temp_path and os.path.exists(temp_path):
-                try:
-                    os.remove(temp_path)
-                except Exception:
-                    pass
 
 groq_service = GroqService()

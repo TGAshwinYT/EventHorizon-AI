@@ -11,8 +11,9 @@ from fastapi import APIRouter, HTTPException, Header, Request
 
 from app.services.vision_diagnostic_service import vision_diagnostic_service
 from app.auth import decode_access_token
-from app.database import AuthSessionLocal
+from app.database import AsyncAuthSessionLocal
 from app.models import User
+from sqlalchemy import select
 
 logger = logging.getLogger("eventhorizon.scanner")
 router = APIRouter()
@@ -38,11 +39,11 @@ async def diagnose_crop(
             payload = decode_access_token(token)
             if payload:
                 username = payload.get("sub")
-                db = AuthSessionLocal()
-                user = db.query(User).filter(User.username == username).first()
-                if user:
-                    user_id = user.id
-                db.close()
+                async with AsyncAuthSessionLocal() as db:
+                    result = await db.execute(select(User).filter(User.username == username))
+                    user = result.scalars().first()
+                    if user:
+                        user_id = user.id
         except Exception as e:
             logger.warning(f"[Scanner] Auth error: {e}")
 

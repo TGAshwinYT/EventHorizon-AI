@@ -351,7 +351,7 @@ def get_districts(
 
 
 @router.get('/forecast')
-def get_price_forecast(
+async def get_price_forecast(
     crop: str = Query(..., description="Crop Name"),
     state: str = Query(..., description="State Name"),
     db: Session = Depends(get_mandi_db)
@@ -365,7 +365,6 @@ def get_price_forecast(
     from app.models import MandiRate
     from datetime import datetime, timedelta
     import pandas as pd
-    from prophet import Prophet
 
     # 1. Fetch historical data for the last 30 days
     from sqlalchemy import text
@@ -429,64 +428,32 @@ def get_price_forecast(
     if len(df_daily) < 2:
         return []
 
-    # 3. Initialize and fit Prophet model
+    # Prepare list of dicts for child process execution
+    df_daily_dict = df_daily.to_dict('records')
+
+    # 3. Use fast linear forecast (instant, ~1ms) as primary method
+    from app.services.forecast_worker import run_linear_forecast
+    
     try:
-        from prophet import Prophet
-        # Disabling yearly/weekly seasonality since we only have 30 days of data
-        m = Prophet(daily_seasonality=False, yearly_seasonality=False, weekly_seasonality=False)
-        m.fit(df_daily)
-
-        # 4. Generate dates for next 7 days and predict
-        future = m.make_future_dataframe(periods=7)
-        forecast = m.predict(future)
-
-        # 5. Extract only the 7 future predicted days and format
-        future_forecast = forecast.tail(7)
-        
-        forecast_json = []
-        for _, row in future_forecast.iterrows():
-            pred_price = row['yhat']
-            # Ensure predicted price doesn't drop to absurd negatives
-            min_hist = df_daily['y'].min()
-            pred_price = max(min_hist * 0.5, pred_price)
-            
-            forecast_json.append({
-                "date": row['ds'].strftime("%Y-%m-%d"),
-                "price": int(round(pred_price)),
-                "isForecast": True
-            })
+        loop = asyncio.get_running_loop()
+        forecast_json = await loop.run_in_executor(
+            None,  # Use default ThreadPoolExecutor (lightweight, no process spawn)
+            run_linear_forecast,
+            df_daily_dict,
+            7
+        )
     except Exception as e:
-        print(f"Prophet initialization failed ({e}). Falling back to linear projection.")
-        import numpy as np
-        
-        x = np.arange(len(df_daily))
-        y = df_daily['y'].values
-        
-        # Fit a simple linear trend (degree 1)
-        z = np.polyfit(x, y, 1)
-        p = np.poly1d(z)
-        
-        forecast_json = []
-        last_date = df_daily['ds'].max()
-        min_hist = df_daily['y'].min()
-        
-        for i in range(1, 8):
-            future_date = last_date + timedelta(days=i)
-            # Predict price using linear fit, extrapolating from len(x)-1 points
-            pred_price = p(len(x) - 1 + i)
-            # Add some slight random noise so it doesn't look perfectly flat/artificial
-            import random
-            noise = pred_price * random.uniform(-0.02, 0.02)
-            pred_price += noise
-            
-            # Floor to 50% of history min
-            pred_price = max(min_hist * 0.5, pred_price)
-            
-            forecast_json.append({
-                "date": future_date.strftime("%Y-%m-%d"),
-                "price": int(round(pred_price)),
-                "isForecast": True
-            })
+        print(f"Linear forecast failed ({e}). Falling back to Prophet.")
+        try:
+            from app.services.forecast_worker import run_prophet_forecast
+            forecast_json = await loop.run_in_executor(
+                None,  # Use default ThreadPoolExecutor to avoid spawning processes
+                run_prophet_forecast,
+                df_daily_dict
+            )
+        except Exception as pe:
+            print(f"Prophet fallback also failed: {pe}")
+            forecast_json = []
 
     # Combine historical and forecasted data
     final_result = historical_json + forecast_json

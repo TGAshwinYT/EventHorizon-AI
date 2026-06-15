@@ -18,6 +18,7 @@ def process_file(filename):
 
     # Update relative imports to point back to src/components
     content = re.sub(r"from '\./([^']+)'", r"from '../../components/\1'", content)
+    content = content.replace("from '../utils/schemesData'", "from '../../utils/schemesData'")
 
     # Change container classes for mobile
     content = content.replace("h-[85vh]", "h-full")

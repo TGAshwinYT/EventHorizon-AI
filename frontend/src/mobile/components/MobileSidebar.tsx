@@ -1,10 +1,12 @@
-import { Sprout, Settings, ScanLine, ShieldAlert } from 'lucide-react';
+import { memo } from 'react';
+import { Sprout, Settings, ScanLine, ShieldAlert, LayoutDashboard } from 'lucide-react';
 import clsx from 'clsx';
 
 interface SidebarProps {
     activeTab: string;
-    setActiveTab: (tab: string) => void;
+    setActiveTab: (tab: any) => void;
     labels: {
+        dashboard?: string;
         agriculture: string;
         scanner: string;
         risk: string;
@@ -12,8 +14,9 @@ interface SidebarProps {
     };
 }
 
-const MobileSidebar = ({ activeTab, setActiveTab, labels }: SidebarProps) => {
+const MobileSidebar = memo(({ activeTab, setActiveTab, labels }: SidebarProps) => {
     const menuItems = [
+        { id: 'dashboard', icon: LayoutDashboard, label: labels.dashboard || 'Home' },
         { id: 'agriculture', icon: Sprout, label: labels.agriculture || 'Agri' },
         { id: 'scanner', icon: ScanLine, label: labels.scanner || 'Scan' },
         { id: 'risk', icon: ShieldAlert, label: labels.risk || 'HarvestIQ' },
@@ -34,7 +37,7 @@ const MobileSidebar = ({ activeTab, setActiveTab, labels }: SidebarProps) => {
             {menuItems.map((item) => {
                 const isActive = activeTab === item.id;
                 const getIconFill = () => {
-                    if (item.id === 'home' || item.id === 'settings' || item.id === 'scanner') return "currentColor";
+                    if (item.id === 'dashboard' || item.id === 'settings' || item.id === 'scanner') return "currentColor";
                     if (item.id === 'agriculture') return "url(#icon-gradient-mobile)";
                     return "currentColor";
                 };
@@ -61,6 +64,6 @@ const MobileSidebar = ({ activeTab, setActiveTab, labels }: SidebarProps) => {
             })}
         </nav>
     );
-};
+});
 
 export default MobileSidebar;

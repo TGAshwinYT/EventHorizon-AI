@@ -1,3 +1,5 @@
+import os
+import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from app.services.ceda_api import fetch_ceda_mandi_prices
@@ -57,19 +59,33 @@ async def scheduled_sms_alerts_task():
                 continue
                 
             # 3. Retrieve regional risk parameters for registered crops
+            state_val = user.state or "Tamil Nadu"
+            district_val = user.district or "Erode"
+            mandal_val = user.mandal or ""
+            from app.services.geocoding import get_coords_with_place
+            lat, lon = await get_coords_with_place(state_val, district_val, mandal_val)
+            if lat is None or lon is None:
+                lat, lon = 11.341, 77.717
+
+            api_key = os.getenv("OPENWEATHERMAP_API_KEY", "")
+
             crops_list = [c.strip() for c in user.crops.split(",")] if user.crops else ["Rice"]
             risk_summaries = []
-            for crop in crops_list[:2]: # Limit crops to keep text compressed
-                try:
-                    res = compute_risk_assessment(
-                        state=user.state or "Tamil Nadu",
-                        district=user.district or "Erode",
-                        crop=crop,
-                        lang=user.language or "en"
-                    )
-                    risk_summaries.append(f"{crop}: {res.get('overall_label', 'Moderate')}")
-                except Exception:
-                    risk_summaries.append(f"{crop}: Moderate")
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                for crop in crops_list[:2]: # Limit crops to keep text compressed
+                    try:
+                        res = await compute_risk_assessment(
+                            lat=lat,
+                            lon=lon,
+                            crop=crop,
+                            location_label=f"{mandal_val}, {district_val}, {state_val}" if mandal_val else f"{district_val}, {state_val}",
+                            api_key=api_key,
+                            client=client,
+                        )
+                        risk_summaries.append(f"{crop}: {res.get('overall_label', 'Moderate')}")
+                    except Exception as e:
+                        debug_print(f"[Scheduler] Alert risk calculation failed for {crop}: {e}")
+                        risk_summaries.append(f"{crop}: Moderate")
                     
             risk_str = ", ".join(risk_summaries)
             

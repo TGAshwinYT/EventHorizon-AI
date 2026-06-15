@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import {
   LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts';
@@ -284,4 +284,4 @@ const MandiDashboard = ({ commodity = "Tomato", market = "Azadpur" }: { commodit
   );
 };
 
-export default MandiDashboard;
+export default memo(MandiDashboard);

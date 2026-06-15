@@ -13,6 +13,11 @@ FRONTEND_URL = "http://localhost:5173"
 BACKEND_HOST = "127.0.0.1"
 BACKEND_PORT = 8000
 
+# Configure local Tools/node if exists
+LOCAL_NODE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Tools", "node")
+if os.path.exists(LOCAL_NODE_DIR):
+    os.environ["PATH"] = LOCAL_NODE_DIR + os.pathsep + os.environ.get("PATH", "")
+
 # Global processes
 backend_process = None
 frontend_process = None

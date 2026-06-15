@@ -13,12 +13,6 @@ class TTSRequest(BaseModel):
     language: str
     voice_preference: Optional[str] = None
 
-class PageAnalysisRequest(BaseModel):
-    page_content: str
-    page_title: str
-    page_url: str
-    user_id: Optional[str] = None
-
 class MemoryRequest(BaseModel):
     user_id: str
     key: str
@@ -66,3 +60,9 @@ class EligibilityCheckRequest(BaseModel):
     social_category: str  # General, OBC, SC, ST
     annual_income: float
     language: str = "en"
+
+class NewsRequest(BaseModel):
+    state: str
+    district: Optional[str] = None
+    language: str = "en"
+

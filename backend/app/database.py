@@ -104,6 +104,15 @@ def apply_ssl_if_needed(url: str, engine_args: dict):
             engine_args["connect_args"] = {"ssl_context": ssl_context}
             return cleaned_url
         
+        # If using asyncpg
+        if "asyncpg" in url:
+            cleaned_url = url.split("?")[0]
+            ssl_context = ssl.create_default_context()
+            ssl_context.check_hostname = False
+            ssl_context.verify_mode = ssl.CERT_NONE
+            engine_args["connect_args"] = {"ssl": ssl_context}
+            return cleaned_url
+        
         # If using psycopg2 (Supabase)
         if "psycopg2" in url:
             # Render networking can be tricky with Supabase IPv6 on port 5432
@@ -162,3 +171,55 @@ def get_mandi_db():
         yield db
     finally:
         db.close()
+
+
+# ──────────────────────────────────────────────────────────────
+# Asynchronous Database Engine and Session Configuration
+# ──────────────────────────────────────────────────────────────
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+
+# Construct async connection URLs using postgresql+asyncpg
+ASYNC_AUTH_DATABASE_URL = AUTH_RAW.strip()
+if re.match(r"^postgres(ql)?(\+\w+)?://", ASYNC_AUTH_DATABASE_URL):
+    ASYNC_AUTH_DATABASE_URL = re.sub(r"^postgres(ql)?(\+\w+)?://", "postgresql+asyncpg://", ASYNC_AUTH_DATABASE_URL, count=1)
+
+ASYNC_MANDI_DATABASE_URL = MANDI_RAW.strip()
+if re.match(r"^postgres(ql)?(\+\w+)?://", ASYNC_MANDI_DATABASE_URL):
+    ASYNC_MANDI_DATABASE_URL = re.sub(r"^postgres(ql)?(\+\w+)?://", "postgresql+asyncpg://", ASYNC_MANDI_DATABASE_URL, count=1)
+
+async_auth_engine_args = {"pool_size": 10, "max_overflow": 20, "pool_pre_ping": True, "pool_recycle": 1800, "connect_args": {}}
+async_mandi_engine_args = {"pool_size": 20, "max_overflow": 30, "pool_pre_ping": True, "pool_recycle": 1800, "connect_args": {}}
+
+ASYNC_AUTH_DATABASE_URL = apply_ssl_if_needed(ASYNC_AUTH_DATABASE_URL, async_auth_engine_args)
+ASYNC_MANDI_DATABASE_URL = apply_ssl_if_needed(ASYNC_MANDI_DATABASE_URL, async_mandi_engine_args)
+
+def safe_create_async_engine(name, url, args):
+    try:
+        u = make_url(url)
+        debug_print(f"Creating async {name} engine (Driver: {u.drivername}, Host: {u.host}, Port: {u.port})")
+        engine = create_async_engine(url, **args)
+        debug_print(f"Async Engine {name} created successfully.")
+        return engine
+    except Exception as e:
+        debug_print(f"CRITICAL ERROR in async {name} engine creation: {str(e)}")
+        raise e
+
+async_auth_engine = safe_create_async_engine("ASYNC_AUTH", ASYNC_AUTH_DATABASE_URL, async_auth_engine_args)
+async_mandi_engine = safe_create_async_engine("ASYNC_MANDI", ASYNC_MANDI_DATABASE_URL, async_mandi_engine_args)
+
+AsyncAuthSessionLocal = async_sessionmaker(autocommit=False, autoflush=False, bind=async_auth_engine, class_=AsyncSession)
+AsyncMandiSessionLocal = async_sessionmaker(autocommit=False, autoflush=False, bind=async_mandi_engine, class_=AsyncSession)
+
+async def get_async_auth_db():
+    async with AsyncAuthSessionLocal() as db:
+        try:
+            yield db
+        finally:
+            await db.close()
+
+async def get_async_mandi_db():
+    async with AsyncMandiSessionLocal() as db:
+        try:
+            yield db
+        finally:
+            await db.close()

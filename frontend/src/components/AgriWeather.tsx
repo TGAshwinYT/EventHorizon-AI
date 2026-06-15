@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
-import { CloudRain, Sun, Cloud, Wind, Droplets, AlertTriangle } from 'lucide-react';
+import { useState, useEffect, memo } from 'react';
+import { CloudRain, Sun, Cloud, Wind, Droplets, AlertTriangle, MapPin } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import CustomSelect from './CustomSelect';
+import { useUserStore } from '../store/userStore';
 
 interface WeatherDay {
     date: string;
@@ -19,31 +20,44 @@ interface AgriWeatherProps {
     labels?: any;
 }
 
-export default function AgriWeather({ labels }: AgriWeatherProps = {}) {
-    // 1. Data Structure for Cascading Dropdowns
-    const indiaLocations: Record<string, string[]> = {
-        'Maharashtra': ['Mumbai', 'Pune', 'Nagpur', 'Nashik', 'Aurangabad'],
-        'Tamil Nadu': ['Chennai', 'Coimbatore', 'Madurai', 'Erode', 'Salem'],
-        'Bihar': ['Patna', 'Gaya', 'Bhagalpur', 'Muzaffarpur', 'Purnia'],
-        'Karnataka': ['Bengaluru', 'Mysuru', 'Hubballi', 'Mangaluru', 'Belagavi'],
-        'Kerala': ['Thiruvananthapuram', 'Kochi', 'Kozhikode', 'Thrissur', 'Kollam'],
-        'Telangana': ['Hyderabad', 'Warangal', 'Nizamabad', 'Khammam', 'Karimnagar'],
-        'Andhra Pradesh': ['Visakhapatnam', 'Vijayawada', 'Guntur', 'Nellore', 'Kurnool'],
-        'Gujarat': ['Ahmedabad', 'Surat', 'Vadodara', 'Rajkot', 'Bhavnagar'],
-        'Uttar Pradesh': ['Lucknow', 'Kanpur', 'Agra', 'Varanasi', 'Prayagraj'],
-        'West Bengal': ['Kolkata', 'Howrah', 'Darjeeling', 'Siliguri', 'Asansol'],
-    };
+const indiaLocations: Record<string, string[]> = {
+    'Maharashtra': ['Mumbai', 'Pune', 'Nagpur', 'Nashik', 'Aurangabad'],
+    'Tamil Nadu': ['Chennai', 'Coimbatore', 'Madurai', 'Erode', 'Salem'],
+    'Bihar': ['Patna', 'Gaya', 'Bhagalpur', 'Muzaffarpur', 'Purnia'],
+    'Karnataka': ['Bengaluru', 'Mysuru', 'Hubballi', 'Mangaluru', 'Belagavi'],
+    'Kerala': ['Thiruvananthapuram', 'Kochi', 'Kozhikode', 'Thrissur', 'Kollam'],
+    'Telangana': ['Hyderabad', 'Warangal', 'Nizamabad', 'Khammam', 'Karimnagar'],
+    'Andhra Pradesh': ['Visakhapatnam', 'Vijayawada', 'Guntur', 'Nellore', 'Kurnool'],
+    'Gujarat': ['Ahmedabad', 'Surat', 'Vadodara', 'Rajkot', 'Bhavnagar'],
+    'Uttar Pradesh': ['Lucknow', 'Kanpur', 'Agra', 'Varanasi', 'Prayagraj'],
+    'West Bengal': ['Kolkata', 'Howrah', 'Darjeeling', 'Siliguri', 'Asansol'],
+};
 
-    const states = Object.keys(indiaLocations).sort();
+const states = Object.keys(indiaLocations).sort();
 
-    // 1. State Management
-    const [selectedState, setSelectedState] = useState('Tamil Nadu');
-    const [selectedDistrict, setSelectedDistrict] = useState('Erode');
+const AgriWeather = memo(({ labels }: AgriWeatherProps = {}) => {
+
+    // Read saved profile location
+    const profile = useUserStore((s) => s.profile);
+
+    // 1. State Management — default from profile if available
+    const [selectedState, setSelectedState] = useState(profile?.state || 'Tamil Nadu');
+    const [selectedDistrict, setSelectedDistrict] = useState(profile?.district || 'Erode');
+    const [place, setPlace] = useState(profile?.mandal || '');
     const [weatherForecast, setWeatherForecast] = useState<WeatherDay[]>([]);
 
     // UI states
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+
+    // Sync from profile when it loads
+    useEffect(() => {
+        if (profile) {
+            if (profile.state) setSelectedState(profile.state);
+            if (profile.district) setSelectedDistrict(profile.district);
+            if (profile.mandal) setPlace(profile.mandal);
+        }
+    }, [profile?.state, profile?.district, profile?.mandal]);
 
     // Derived State for Available Districts
     const availableDistricts = selectedState ? indiaLocations[selectedState] || [] : [];
@@ -55,7 +69,11 @@ export default function AgriWeather({ labels }: AgriWeatherProps = {}) {
             setError(null);
 
             try {
-                const response = await fetch(`/api/weather?state=${encodeURIComponent(selectedState)}&district=${encodeURIComponent(selectedDistrict)}`);
+                let url = `/api/weather?state=${encodeURIComponent(selectedState)}&district=${encodeURIComponent(selectedDistrict)}`;
+                if (place.trim()) {
+                    url += `&place=${encodeURIComponent(place.trim())}`;
+                }
+                const response = await fetch(url);
 
                 if (!response.ok) {
                     // Fallback to mock data if the endpoint isn't ready yet
@@ -75,7 +93,7 @@ export default function AgriWeather({ labels }: AgriWeatherProps = {}) {
         };
 
         fetchWeather();
-    }, [selectedDistrict, selectedState]);
+    }, [selectedDistrict, selectedState, place]);
 
     // Temporary helper to generate mock data matching the screenshot if backend fails
     const generateMockData = () => {
@@ -129,7 +147,10 @@ export default function AgriWeather({ labels }: AgriWeatherProps = {}) {
                 <div>
                     <h2 className="text-3xl font-bold text-[#00FF7F] mb-2 tracking-tight">{labels?.weatherAgriWeather || 'Hyper-Local Agri-Weather'}</h2>
                     <p className="text-gray-300 flex items-center gap-2">
-                        Location: <span className="text-white font-medium">{selectedDistrict}, {selectedState}</span>
+                        <MapPin className="w-4 h-4 text-[#00FF7F]" />
+                        Location: <span className="text-white font-medium">
+                            {place.trim() ? `${place}, ` : ''}{selectedDistrict}, {selectedState}
+                        </span>
                     </p>
                 </div>
 
@@ -141,6 +162,7 @@ export default function AgriWeather({ labels }: AgriWeatherProps = {}) {
                             setSelectedState(val);
                             const newDistricts = indiaLocations[val] || [];
                             setSelectedDistrict(newDistricts.length > 0 ? newDistricts[0] : '');
+                            setPlace('');
                         }}
                         options={states}
                         accentColor="emerald"
@@ -148,11 +170,27 @@ export default function AgriWeather({ labels }: AgriWeatherProps = {}) {
                     <CustomSelect
                         label={labels?.selectDistrict || 'Select District'}
                         value={selectedDistrict}
-                        onChange={setSelectedDistrict}
+                        onChange={(val) => {
+                            setSelectedDistrict(val);
+                            setPlace('');
+                        }}
                         options={availableDistricts}
                         disabled={!selectedState || availableDistricts.length === 0}
                         accentColor="emerald"
                     />
+                    {/* Place / Town / Mandal input for hyper-local accuracy */}
+                    <div className="flex flex-col gap-1 min-w-[180px]">
+                        <label className="text-xs text-gray-400 font-medium">
+                            {labels?.selectPlace || 'Place / Town / Mandal'}
+                        </label>
+                        <input
+                            type="text"
+                            value={place}
+                            onChange={(e) => setPlace(e.target.value)}
+                            placeholder="e.g. Sathyamangalam"
+                            className="bg-[#1A1C23] border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm placeholder-gray-500 focus:border-[#00FF7F]/50 focus:outline-none focus:ring-1 focus:ring-[#00FF7F]/30 transition-all"
+                        />
+                    </div>
                 </div>
             </div>
 
@@ -325,4 +363,7 @@ export default function AgriWeather({ labels }: AgriWeatherProps = {}) {
             )}
         </div>
     );
-}
+});
+
+export default AgriWeather;
+

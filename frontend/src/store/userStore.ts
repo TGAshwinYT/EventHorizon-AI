@@ -27,7 +27,6 @@ interface UserState {
   messages: ChatMessage[];
   isListening: boolean;
   isSpeaking: boolean;
-  isAnalyzingPage: boolean;
   isPageLoading: boolean;
   pageSummary: string | null;
   pageKeyPoints: string[];
@@ -41,7 +40,6 @@ interface UserState {
   setProfile: (profile: UserProfile | null) => void;
   setIsListening: (isListening: boolean) => void;
   setIsSpeaking: (isSpeaking: boolean) => void;
-  setIsAnalyzingPage: (isAnalyzingPage: boolean) => void;
   setIsPageLoading: (isLoading: boolean) => void;
   setActiveLanguage: (lang: string) => void;
   setOnboardingStep: (step: number) => void;
@@ -49,13 +47,14 @@ interface UserState {
   
   // Chat Actions
   addMessage: (role: 'user' | 'assistant', content: string, audioUrl?: string) => void;
+  appendMessageChunk: (id: string, chunk: string) => void;
+  updateMessage: (id: string, updates: Partial<ChatMessage>) => void;
   clearMessages: () => void;
   
   // Async Operations
   fetchProfile: () => Promise<UserProfile | null>;
   updateProfile: (updates: Partial<UserProfile>) => Promise<boolean>;
   saveMemory: (key: string, value: string) => Promise<void>;
-  analyzePage: (title: string, url: string, content: string) => Promise<void>;
 }
 
 export const useUserStore = create<UserState>((set, get) => ({
@@ -64,7 +63,6 @@ export const useUserStore = create<UserState>((set, get) => ({
   messages: [],
   isListening: false,
   isSpeaking: false,
-  isAnalyzingPage: false,
   isPageLoading: false,
   pageSummary: null,
   pageKeyPoints: [],
@@ -85,7 +83,6 @@ export const useUserStore = create<UserState>((set, get) => ({
   setProfile: (profile) => set({ profile }),
   setIsListening: (isListening) => set({ isListening }),
   setIsSpeaking: (isSpeaking) => set({ isSpeaking }),
-  setIsAnalyzingPage: (isAnalyzingPage) => set({ isAnalyzingPage }),
   setIsPageLoading: (isPageLoading) => set({ isPageLoading }),
   
   setActiveLanguage: (lang) => {
@@ -109,6 +106,22 @@ export const useUserStore = create<UserState>((set, get) => ({
       timestamp: new Date()
     };
     set((state) => ({ messages: [...state.messages, newMessage] }));
+  },
+
+  appendMessageChunk: (id, chunk) => {
+    set((state) => ({
+      messages: state.messages.map((msg) => 
+        msg.id === id ? { ...msg, content: msg.content + chunk } : msg
+      )
+    }));
+  },
+
+  updateMessage: (id, updates) => {
+    set((state) => ({
+      messages: state.messages.map((msg) => 
+        msg.id === id ? { ...msg, ...updates } : msg
+      )
+    }));
   },
 
   clearMessages: () => set({ messages: [] }),
@@ -166,30 +179,6 @@ export const useUserStore = create<UserState>((set, get) => ({
       });
     } catch (error) {
       console.error('[STORE SAVE MEMORY ERROR]', error);
-    }
-  },
-
-  analyzePage: async (title, url, content) => {
-    const { profile } = get();
-    set({ isAnalyzingPage: true, pageSummary: null, pageKeyPoints: [], pageSuggestedQuestions: [] });
-    try {
-      const response = await api.post('/api/assistant/page/analyze', {
-        page_title: title,
-        page_url: url,
-        page_content: content,
-        user_id: profile?.username
-      });
-      if (response.data) {
-        set({
-          pageSummary: response.data.summary,
-          pageKeyPoints: response.data.key_points || [],
-          pageSuggestedQuestions: response.data.suggested_questions || []
-        });
-      }
-    } catch (error) {
-      console.error('[STORE PAGE ANALYZE ERROR]', error);
-    } finally {
-      set({ isAnalyzingPage: false });
     }
   }
 }));

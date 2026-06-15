@@ -8,18 +8,19 @@ export function useWakeWord() {
   const isListening = useUserStore((state) => state.isListening);
   const activeLanguage = useUserStore((state) => state.activeLanguage);
 
-  useEffect(() => {
+  const hasRecognitionStartedRef = useRef(false);
+
+  const createRecognition = () => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
       console.warn('[WAKE WORD] SpeechRecognition is not supported in this browser.');
-      return;
+      return null;
     }
 
     const rec = new SpeechRecognition();
     rec.continuous = true;
     rec.interimResults = true;
-    
-    // Dynamically map active UI language to native SpeechRecognition language model
+
     const langMap: Record<string, string> = {
       en: 'en-IN',
       ta: 'ta-IN',
@@ -35,9 +36,8 @@ export function useWakeWord() {
 
     rec.onresult = (event: any) => {
       const resultIndex = event.resultIndex;
-      const transcript = event.results[resultIndex][0].transcript.toLowerCase();
-      
-      // Highly robust multi-lingual and phonetic keyword matching
+      const transcript = event.results[resultIndex][0]?.transcript?.toLowerCase() || '';
+
       const matchWords = [
         'horizon', 'orizon', 'ryzen', 'harizan', 'harison', 'herizen', 'horisen', 'horison', 'harisen',
         'ஹொரைசன்', 'ஹே ஹொரைசன்', 'ஹோரைசன்', 'ஹாரைசன்',
@@ -47,70 +47,89 @@ export function useWakeWord() {
         'ഹൊറൈസൺ',
         'হরাইজন',
         'होरायझन',
-        'હોરાઇઝન'
+        'હોરાઇઝन'
       ];
-      
+
       const isWakeWordMatched = matchWords.some(word => transcript.includes(word));
-      
       if (isWakeWordMatched) {
         console.log('[WAKE WORD TRIGGERED] Detected wake word with text:', transcript);
         setIsListening(true);
-        
-        // Dispatch wake up event
         window.dispatchEvent(new CustomEvent('eventhorizon_wakeup'));
-        
-        // Haptic feedback for mobile devices
         if (navigator.vibrate) {
           navigator.vibrate([100, 50, 100]);
         }
       }
     };
 
+    rec.onstart = () => {
+      console.log('[WAKE WORD] recognition started.');
+      hasRecognitionStartedRef.current = true;
+    };
+
+    rec.onend = () => {
+      console.log('[WAKE WORD] recognition ended. active=', isWakeWordActive, 'listening=', isListening);
+      hasRecognitionStartedRef.current = false;
+      if (isWakeWordActive && !isListening) {
+        setTimeout(() => {
+          if (recognitionRef.current && !hasRecognitionStartedRef.current) {
+            try {
+              recognitionRef.current.start();
+            } catch (e) {
+              console.warn('[WAKE WORD] restart failed', e);
+            }
+          }
+        }, 300);
+      }
+    };
+
     rec.onerror = (event: any) => {
       console.warn('[WAKE WORD ERROR]', event.error);
+      hasRecognitionStartedRef.current = false;
       if (event.error === 'not-allowed') {
         setIsWakeWordActive(false);
       }
     };
 
-    const safeStart = () => {
-      if (recognitionRef.current && isWakeWordActive && !isListening) {
-        try {
-          recognitionRef.current.start();
-        } catch (e) {
-          // Already running or starting
-        }
-      }
-    };
+    return rec;
+  };
 
-    rec.onend = () => {
-      // Auto restart background wake word recognition with a safe throttle
-      if (isWakeWordActive && !isListening) {
-        setTimeout(() => {
-          safeStart();
-        }, 300);
-      }
-    };
+  useEffect(() => {
+    if (!isWakeWordActive) {
+      return;
+    }
 
-    recognitionRef.current = rec;
+    if (!recognitionRef.current) {
+      recognitionRef.current = createRecognition();
+    }
 
-    if (isWakeWordActive && !isListening) {
+    if (recognitionRef.current && !isListening && !hasRecognitionStartedRef.current) {
       try {
         recognitionRef.current.start();
       } catch (e) {
-        // Already running
+        console.warn('[WAKE WORD] start failed', e);
       }
     }
 
     return () => {
       if (recognitionRef.current) {
         recognitionRef.current.abort();
+        hasRecognitionStartedRef.current = false;
       }
     };
-  }, [isWakeWordActive, isListening, setIsListening, activeLanguage]);
+  }, [isWakeWordActive, isListening, activeLanguage]);
 
   const startWakeWordListener = () => {
     setIsWakeWordActive(true);
+    if (!recognitionRef.current) {
+      recognitionRef.current = createRecognition();
+    }
+    if (recognitionRef.current && !isListening && !hasRecognitionStartedRef.current) {
+      try {
+        recognitionRef.current.start();
+      } catch (e) {
+        console.warn('[WAKE WORD] start failed', e);
+      }
+    }
     console.log('[WAKE WORD] continuous wake word listener started.');
   };
 
@@ -118,6 +137,7 @@ export function useWakeWord() {
     setIsWakeWordActive(false);
     if (recognitionRef.current) {
       recognitionRef.current.abort();
+      hasRecognitionStartedRef.current = false;
     }
     console.log('[WAKE WORD] continuous wake word listener stopped.');
   };

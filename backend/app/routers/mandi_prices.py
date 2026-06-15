@@ -5,6 +5,7 @@ from app.database import get_mandi_db
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
+import asyncio
 
 router = APIRouter()
 
@@ -19,9 +20,14 @@ def get_recent_mandi_prices(
     # Query the 5 most recent dates for the commodity and market (or state/district)
     # Note: Using raw SQL for precise control over DATE casting and limits
     query = text("""
-        SELECT arrival_date, AVG(min_price), AVG(max_price), AVG(modal_price) 
-        FROM mandi_prices
-        WHERE commodity = :commodity AND (state = :market OR district = :market OR market = :market)
+        SELECT arrival_date, AVG(min_price) as min_price, AVG(max_price) as max_price, AVG(modal_price) as modal_price
+        FROM (
+            SELECT arrival_date, min_price, max_price, modal_price FROM mandi_prices WHERE commodity = :commodity AND state = :market
+            UNION ALL
+            SELECT arrival_date, min_price, max_price, modal_price FROM mandi_prices WHERE commodity = :commodity AND district = :market
+            UNION ALL
+            SELECT arrival_date, min_price, max_price, modal_price FROM mandi_prices WHERE commodity = :commodity AND market = :market
+        ) as combined
         GROUP BY arrival_date
         ORDER BY arrival_date DESC
         LIMIT 5;
@@ -60,7 +66,7 @@ def get_recent_mandi_prices(
 
 
 @router.get('/forecast')
-def get_mandi_forecast(
+async def get_mandi_forecast(
     commodity: str = Query(..., description="Commodity Name"),
     market: str = Query(..., description="Market Name"),
     db: Session = Depends(get_mandi_db)
@@ -70,9 +76,13 @@ def get_mandi_forecast(
     # Query 30 days of historical data
     query = text("""
         SELECT arrival_date, AVG(modal_price) as modal_price 
-        FROM mandi_prices
-        WHERE commodity = :commodity AND (state = :market OR district = :market OR market = :market)
-        AND modal_price IS NOT NULL
+        FROM (
+            SELECT arrival_date, modal_price FROM mandi_prices WHERE commodity = :commodity AND state = :market AND modal_price IS NOT NULL
+            UNION ALL
+            SELECT arrival_date, modal_price FROM mandi_prices WHERE commodity = :commodity AND district = :market AND modal_price IS NOT NULL
+            UNION ALL
+            SELECT arrival_date, modal_price FROM mandi_prices WHERE commodity = :commodity AND market = :market AND modal_price IS NOT NULL
+        ) as combined
         GROUP BY arrival_date
         ORDER BY arrival_date DESC
         LIMIT 30;
@@ -118,33 +128,39 @@ def get_mandi_forecast(
     if len(prices) < 2:
          return historical_data # Can't do regression on < 2 points
          
-    # --- Linear Regression Setup ---
-    # Create an array of X integers representing days [0, 1, 2, ..., n]
-    x_days = np.arange(len(prices))
-    y_prices = np.array(prices)
+    # Offload Linear Regression calculation to ThreadPoolExecutor (lightweight, ~1ms)
+    from app.services.forecast_worker import run_linear_forecast_mandi
     
-    # Fit line (degree 1)
-    # Returns coefficients [slope, intercept]
-    coefficients = np.polyfit(x_days, y_prices, 1)
-    predictor = np.poly1d(coefficients)
+    # Convert dates to string format for serialization
+    dates_str = [d.strftime("%Y-%m-%d") for d in dates]
     
-    forecast_data = []
-    last_historical_date = dates[-1]
-    last_x = x_days[-1]
+    loop = asyncio.get_running_loop()
     
-    # Predict for the next 5 days
-    for i in range(1, 6):
-        future_x = last_x + i
-        predicted_price = predictor(future_x)
-        future_date = last_historical_date + timedelta(days=i)
-        
-        # Ensure prices don't dip below 0
-        predicted_price = max(0, predicted_price)
-        
-        forecast_data.append({
-            "date": future_date.strftime("%Y-%m-%d"),
-            "price": round(predicted_price, 2),
-            "isForecast": True
-        })
+    try:
+        forecast_data = await loop.run_in_executor(
+            None,  # Default ThreadPoolExecutor - no process spawn overhead
+            run_linear_forecast_mandi,
+            prices,
+            dates_str
+        )
+    except Exception as e:
+        print(f"[Executor] Mandi linear forecast failed in child process: {e}")
+        # Local fallback in case pool executor fails
+        forecast_data = []
+        x_days = np.arange(len(prices))
+        y_prices = np.array(prices)
+        coefficients = np.polyfit(x_days, y_prices, 1)
+        predictor = np.poly1d(coefficients)
+        last_historical_date = dates[-1]
+        last_x = x_days[-1]
+        for i in range(1, 6):
+            future_x = last_x + i
+            predicted_price = max(0.0, predictor(future_x))
+            future_date = last_historical_date + timedelta(days=i)
+            forecast_data.append({
+                "date": future_date.strftime("%Y-%m-%d"),
+                "price": float(round(predicted_price, 2)),
+                "isForecast": True
+            })
         
     return historical_data + forecast_data

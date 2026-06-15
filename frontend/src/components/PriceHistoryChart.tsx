@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface PriceHistoryChartProps {
@@ -8,7 +8,7 @@ interface PriceHistoryChartProps {
     }[];
 }
 
-const PriceHistoryChart: React.FC<PriceHistoryChartProps> = ({ data }) => {
+const PriceHistoryChart: React.FC<PriceHistoryChartProps> = memo(({ data }) => {
     return (
         <div className="w-full h-64 bg-[#1A1B23] rounded-lg p-4 shadow-lg border border-gray-800">
             <div className="flex items-center gap-2 mb-4">
@@ -73,6 +73,6 @@ const PriceHistoryChart: React.FC<PriceHistoryChartProps> = ({ data }) => {
             </div>
         </div>
     );
-};
+});
 
 export default PriceHistoryChart;
