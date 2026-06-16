@@ -1,4 +1,11 @@
 import os
+import tempfile
+# Force transformers to use a shallow, explicit directory (cross-platform temporary directory)
+temp_cache = os.path.join(tempfile.gettempdir(), "hf_cache")
+os.environ["HF_HOME"] = temp_cache
+os.environ["TRANSFORMERS_CACHE"] = temp_cache
+
+
 import sys
 import asyncio
 from dotenv import load_dotenv
@@ -15,7 +22,7 @@ from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from app.routers import market, auth, weather, scanner, harvestiq, satellite, assistant, research, schemes, mandi_prices, news
+from app.routers import market, auth, weather, scanner, harvestiq, satellite, assistant, research, schemes, mandi_prices, news, plant_scanner
 from app.database import auth_engine, mandi_engine, AuthBase, MandiBase
 
 ml_models = {}
@@ -64,16 +71,28 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"[!] Failed to start scheduler: {e}")
         
-    # 2. Database Initialization
+    # 2. Database Initialization (non-blocking)
     async def delayed_init():
         await asyncio.sleep(1) # Yield control
-        init_db()
+        await asyncio.to_thread(init_db)
     asyncio.create_task(delayed_init())
     
-    # 3. Simulate AI Model Warmup / Neural Link Building
-    print("[-] Warming up AI models and establishing neural links...")
-    await asyncio.sleep(2.5) 
-    
+    # 3. Warm up Local Classifier Model in background to prevent startup blocking
+    async def load_model_background():
+        try:
+            from transformers import AutoImageProcessor, AutoModelForImageClassification
+            VISION_MODEL_NAME = "Abuzaid01/plant-disease-classifier"
+            print("Loading pre-trained PlantVillage model in the background...")
+            proc = await asyncio.to_thread(AutoImageProcessor.from_pretrained, VISION_MODEL_NAME)
+            mod = await asyncio.to_thread(AutoModelForImageClassification.from_pretrained, VISION_MODEL_NAME)
+            app.state.classifier_processor = proc
+            app.state.classifier_model = mod
+            print("Model loaded successfully in the background!")
+        except Exception as e:
+            print(f"[!] Failed to load local classifier model in background: {e}")
+            
+    asyncio.create_task(load_model_background())
+
     app.state.is_ready = True
     print("[*] Application startup complete. EventHorizon is Online.")
     
@@ -82,6 +101,12 @@ async def lifespan(app: FastAPI):
     # Teardown logic here
     print("APPLICATION SHUTTING DOWN...")
     
+    # Clean up ML classifier models
+    if hasattr(app.state, "classifier_processor"):
+        del app.state.classifier_processor
+    if hasattr(app.state, "classifier_model"):
+        del app.state.classifier_model
+
     # Shutdown Scheduler
     try:
         from app.services.scheduler import shutdown_scheduler
@@ -103,9 +128,8 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="EventHorizon AI Backend", lifespan=lifespan)
 
 app.add_middleware(
-
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:3000", "http://127.0.0.1:5173"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -117,6 +141,7 @@ app.include_router(auth.router, prefix='/api/auth', tags=["Auth"])
 app.include_router(weather.router, prefix='/api/weather', tags=["Weather"])
 # Visual Diagnostic Scanner (crop disease diagnosis from images)
 app.include_router(scanner.router, prefix='/api/scanner', tags=["Scanner"])
+app.include_router(plant_scanner.router, prefix='/api/scanner', tags=["PlantScanner"])
 
 # HarvestIQ — full agricultural risk REST API
 app.include_router(harvestiq.router)

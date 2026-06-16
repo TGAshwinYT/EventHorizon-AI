@@ -79,6 +79,15 @@ const VisualScanner = ({ language, token, onBack }: VisualScannerProps) => {
   const [compressedBase64, setCompressedBase64] = useState<string | null>(null);
   const [diagnosis, setDiagnosis] = useState<DiagnosisResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [deepAnalysis, setDeepAnalysis] = useState<{
+    detected_disease: string;
+    root_cause: string;
+    remedy: string;
+    buy_links: { title: string; link: string }[];
+    confidence_score?: string;
+  } | null>(null);
+  const [deepLoading, setDeepLoading] = useState(false);
+  const [showDeepAnalysis, setShowDeepAnalysis] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -234,8 +243,69 @@ const VisualScanner = ({ language, token, onBack }: VisualScannerProps) => {
     setCompressedBase64(null);
     setDiagnosis(null);
     setError(null);
+    setDeepAnalysis(null);
+    setShowDeepAnalysis(false);
+    setDeepLoading(false);
     setState('selection');
   }, []);
+
+  const triggerDeepAnalysis = useCallback(async () => {
+    if (!compressedBase64) return;
+    setDeepLoading(true);
+    setError(null);
+    try {
+      const byteCharacters = atob(compressedBase64);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: 'image/jpeg' });
+
+      const formData = new FormData();
+      formData.append('file', blob, 'image.jpg');
+
+      const langNames: Record<string, string> = {
+        ta: 'Tamil', hi: 'Hindi', te: 'Telugu', kn: 'Kannada',
+        ml: 'Malayalam', bn: 'Bengali', mr: 'Marathi', gu: 'Gujarati',
+        pa: 'Punjabi', en: 'English'
+      };
+      const langName = langNames[language] || 'English';
+      formData.append('language', langName);
+
+      if (diagnosis) {
+        if (diagnosis.plant_name) formData.append('plant_name', diagnosis.plant_name);
+        if (diagnosis.issue_detected) formData.append('issue_detected', diagnosis.issue_detected);
+        
+        const initialRemedies = [];
+        if (diagnosis.organic_alternative) initialRemedies.push(`Organic option: ${diagnosis.organic_alternative}`);
+        if (diagnosis.recommended_material) initialRemedies.push(`Chemical/Treatment: ${diagnosis.recommended_material}`);
+        if (diagnosis.application_method) initialRemedies.push(`Application method: ${diagnosis.application_method}`);
+        if (initialRemedies.length > 0) {
+          formData.append('initial_remedy', initialRemedies.join('\n'));
+        }
+      }
+
+      const res = await fetch('/api/scanner/analyze-plant', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!res.ok) throw new Error(`Deep analysis failed: ${res.status}`);
+      const data = await res.json();
+      if (data.success) {
+        setDeepAnalysis(data);
+        setShowDeepAnalysis(true);
+      } else {
+        setError(data.message || 'Deep analysis failed');
+      }
+    } catch (err: any) {
+      console.error(err);
+      setError(err.message || 'Deep analysis error');
+    } finally {
+      setDeepLoading(false);
+    }
+  }, [compressedBase64, language, diagnosis]);
 
   // ── Shared styles ──
   const btnBase = "flex items-center justify-center gap-3 min-h-[72px] text-xl font-bold rounded-2xl transition-all duration-200 active:scale-95 select-none";
@@ -433,6 +503,98 @@ const VisualScanner = ({ language, token, onBack }: VisualScannerProps) => {
                 {diagnosis.diagnosis_translated || diagnosis.diagnosis_text}
               </p>
             </div>
+
+            {/* Deep Analysis Option */}
+            {diagnosis.issue_detected !== 'healthy' && diagnosis.issue_detected !== 'not_a_plant' && (
+              <div className="space-y-4">
+                {!showDeepAnalysis && (
+                  <div className="space-y-3">
+                    <button 
+                      onClick={triggerDeepAnalysis} 
+                      disabled={deepLoading}
+                      className={`${btnSmall} bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white w-full shadow-lg shadow-emerald-950/20`}
+                    >
+                      {deepLoading ? 'Generating Deep Analysis...' : '🔍 Get Expert Deep Analysis'}
+                    </button>
+                    {error && (
+                      <div className="glass-panel border-red-500/40 rounded-xl px-5 py-3 text-red-300 text-center text-sm w-full">
+                        {error}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {showDeepAnalysis && deepAnalysis && (
+                  <div className="glass-panel rounded-3xl p-6 border border-emerald-500/30 bg-emerald-950/10 space-y-6">
+                    <div className="flex items-center justify-between">
+                      <h3 className="text-2xl font-bold text-emerald-400 flex items-center gap-2">
+                        <ShieldCheck className="w-7 h-7" /> Expert Deep Analysis
+                      </h3>
+                      <button 
+                        onClick={() => setShowDeepAnalysis(false)} 
+                        className="p-1 rounded-lg bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+
+                    <div className="space-y-4">
+                      {/* 1. Header Metrics Banner */}
+                      <div className="bg-black/20 rounded-2xl p-5 border border-white/5 flex items-center justify-between">
+                        <div>
+                          <p className="text-sm text-gray-400">Detected Disease</p>
+                          <h4 className="text-xl font-bold text-white mt-1">{deepAnalysis.detected_disease}</h4>
+                        </div>
+                        <span className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-bold px-3 py-1 rounded-lg">
+                          Accuracy: {deepAnalysis.confidence_score}
+                        </span>
+                      </div>
+
+                      {/* 2. Scientific Root Cause Block */}
+                      <div className="bg-black/20 rounded-2xl p-5 border border-white/5">
+                        <h4 className="text-emerald-400 font-semibold text-base mb-2 flex items-center gap-2">
+                          🔍 Root Cause Analysis
+                        </h4>
+                        <p className="text-gray-300 text-base leading-relaxed">{deepAnalysis.root_cause}</p>
+                      </div>
+
+                      {/* 3. Localized Remedy Instructions */}
+                      <div className="bg-emerald-900/10 border border-emerald-500/10 rounded-2xl p-5">
+                        <h4 className="text-emerald-400 font-semibold text-base mb-2 flex items-center gap-2">
+                          🌱 Recommended Action Steps
+                        </h4>
+                        <p className="text-gray-200 text-base leading-relaxed whitespace-pre-line">{deepAnalysis.remedy}</p>
+                      </div>
+
+                      {/* 4. Live Reference / E-Commerce Links */}
+                      <div className="bg-blue-900/10 border border-blue-500/10 rounded-2xl p-5">
+                        <h4 className="text-blue-400 font-semibold text-base mb-3 flex items-center gap-2">
+                          🛒 Available Treatments Online
+                        </h4>
+                        {deepAnalysis.buy_links && deepAnalysis.buy_links.length > 0 ? (
+                          <div className="grid grid-cols-1 gap-2 mt-2">
+                            {deepAnalysis.buy_links.map((item, index) => (
+                              <a 
+                                key={index} 
+                                href={item.link} 
+                                target="_blank" 
+                                rel="noreferrer" 
+                                className="flex items-center justify-between p-3 rounded-xl bg-blue-600/20 border border-blue-500/20 hover:bg-blue-600/30 transition-all text-white text-base font-medium"
+                              >
+                                <span>{item.title}</span>
+                                <ExternalLink className="w-4 h-4 shrink-0 text-blue-400" />
+                              </a>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-gray-400 text-sm">No direct market links found. Please check local agro-pharmacies for standard remedies.</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Audio playback */}
             {diagnosis.audio_url && (

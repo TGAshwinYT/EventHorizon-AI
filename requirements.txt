@@ -17,3 +17,6 @@ python-multipart
 starlette
 SQLAlchemy
 asyncpg
+transformers
+torch
+pillow

@@ -177,11 +177,13 @@ class VisionDiagnosticService:
             except Exception as e:
                 logger.warning(f"[Vision] Gemini translation failed: {e}")
 
-            # Fallback for diagnosis_translated if it wasn't populated or matches English
             if not result.get("diagnosis_translated") or result.get("diagnosis_translated") == diagnosis_text:
                 try:
+                    import asyncio
                     from app.services.translator import translator
-                    translated = translator.translate_from_english(diagnosis_text, language)
+                    translated = await asyncio.to_thread(
+                        translator.translate_from_english, diagnosis_text, language
+                    )
                     result["diagnosis_translated"] = translated if translated else diagnosis_text
                 except Exception as fallback_err:
                     logger.warning(f"[Vision] Fallback translation failed: {fallback_err}")
@@ -192,12 +194,15 @@ class VisionDiagnosticService:
         # ── Step 4: TTS (speak the diagnosis aloud) ──
         if speak_result:
             try:
-                from app.services.riva_tts_service import riva_tts_service
+                from app.services.azure_tts_engine import casual_voice_engine
+                import asyncio
                 tts_text = result["diagnosis_translated"]
-                audio_bytes = await riva_tts_service.synthesize(tts_text, language, "mp3")
+                audio_bytes = await asyncio.to_thread(
+                    casual_voice_engine.speak_natural, tts_text, language
+                )
                 if audio_bytes:
                     audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
-                    mime = "audio/wav" if audio_bytes.startswith(b"RIFF") else "audio/mp3"
+                    mime = "audio/wav"
                     result["audio_url"] = f"data:{mime};base64,{audio_b64}"
                     logger.info(f"[Vision] TTS: {len(audio_bytes)} bytes")
             except Exception as e:
