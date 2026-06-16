@@ -19,38 +19,9 @@ from app.services.sentinel_hub_service import (
     is_sentinel_hub_configured, fetch_sentinel_ndvi,
 )
 from app.services.india_locations import find_nearest_district, get_coords_for_district
-from app.cache_utils import TTLCache
 from app.services.ndvi_ml_service import forecast_ndvi_prophet, generate_ml_advisory
 
 router = APIRouter()
-
-_ip_cache = TTLCache(ttl_seconds=86400)
-
-
-def _get_client_ip(request: Request) -> Optional[str]:
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else None
-
-
-async def _ip_to_coords(ip: str, client: httpx.AsyncClient) -> Optional[dict]:
-    if not ip or ip in ("127.0.0.1", "::1", "localhost"):
-        return None
-    cached = _ip_cache.get(f"sat_ip_{ip}")
-    if cached:
-        return cached
-    try:
-        res = await client.get(f"http://ip-api.com/json/{ip}?fields=status,lat,lon", timeout=5)
-        if res.status_code == 200:
-            data = res.json()
-            if data.get("status") == "success":
-                result = {"lat": data["lat"], "lon": data["lon"]}
-                _ip_cache.set(f"sat_ip_{ip}", result)
-                return result
-    except Exception:
-        pass
-    return None
 
 
 async def _resolve_coords(
@@ -60,7 +31,7 @@ async def _resolve_coords(
     place: Optional[str],
     client: httpx.AsyncClient,
 ):
-    """Resolve coordinates from params or IP fallback."""
+    """Resolve coordinates from params."""
     if lat is not None and lon is not None:
         return lat, lon
 
@@ -69,15 +40,9 @@ async def _resolve_coords(
         lat_res, lon_res = await get_coords_with_place(state, district, place or "", client)
         return lat_res, lon_res
 
-    ip = _get_client_ip(request)
-    if ip:
-        coords = await _ip_to_coords(ip, client)
-        if coords:
-            return coords["lat"], coords["lon"]
-
     raise HTTPException(
         status_code=400,
-        detail="Location required. Provide lat+lon, state+district, or allow IP detection.",
+        detail="Location required. Provide lat+lon or state+district.",
     )
 
 

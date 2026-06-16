@@ -20,12 +20,12 @@ from datetime import datetime
 
 import httpx
 
+from dotenv import load_dotenv
+load_dotenv()
+
 from app.cache_utils import TTLCache
 
 logger = logging.getLogger("eventhorizon.vision")
-
-# Cache Geolocation for 24 hours to bypass repetitive O(Network) calls
-ip_geo_cache = TTLCache(ttl_seconds=86400)
 
 # ── Configuration ──
 NVIDIA_API_KEY = os.getenv("NVIDIA_API_KEY", "")
@@ -82,9 +82,9 @@ class VisionDiagnosticService:
     """
 
     def __init__(self):
-        self._nim_available = bool(NVIDIA_API_KEY)
-        self._tavily_available = bool(TAVILY_API_KEY)
-        self._gemini_available = bool(GEMINI_API_KEY)
+        self._nim_available = bool(os.getenv("NVIDIA_API_KEY") or NVIDIA_API_KEY)
+        self._tavily_available = bool(os.getenv("TAVILY_API_KEY") or TAVILY_API_KEY)
+        self._gemini_available = bool(os.getenv("GEMINI_API_KEY") or GEMINI_API_KEY)
         logger.info(
             f"[Vision] NIM: {'✓' if self._nim_available else '✗'} | "
             f"Tavily: {'✓' if self._tavily_available else '✗'} | "
@@ -101,7 +101,7 @@ class VisionDiagnosticService:
         language: str = "en",
         user_query: Optional[str] = None,
         speak_result: bool = True,
-        client_ip: Optional[str] = None,
+        location: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Full diagnostic pipeline.
@@ -151,8 +151,6 @@ class VisionDiagnosticService:
         # ── Step 2: Price Search (skip if healthy or not a plant) ──
         if result["issue_detected"] not in ("healthy", "not_a_plant", "N/A"):
             try:
-                # Attempt to get location from IP
-                location = await self._get_location_from_ip(client_ip) if client_ip else None
                 if location:
                     logger.info(f"[Vision] Using location for search: {location}")
 
@@ -174,12 +172,20 @@ class VisionDiagnosticService:
 
         if language != "en":
             try:
-                from app.services.translator import translator
-                translated = translator.translate_from_english(diagnosis_text, language)
-                result["diagnosis_translated"] = translated if translated else diagnosis_text
+                # First try translation of all fields using Gemini
+                await self._translate_fields(result, language)
             except Exception as e:
-                logger.warning(f"[Vision] Translation failed: {e}")
-                result["diagnosis_translated"] = diagnosis_text
+                logger.warning(f"[Vision] Gemini translation failed: {e}")
+
+            # Fallback for diagnosis_translated if it wasn't populated or matches English
+            if not result.get("diagnosis_translated") or result.get("diagnosis_translated") == diagnosis_text:
+                try:
+                    from app.services.translator import translator
+                    translated = translator.translate_from_english(diagnosis_text, language)
+                    result["diagnosis_translated"] = translated if translated else diagnosis_text
+                except Exception as fallback_err:
+                    logger.warning(f"[Vision] Fallback translation failed: {fallback_err}")
+                    result["diagnosis_translated"] = diagnosis_text
         else:
             result["diagnosis_translated"] = diagnosis_text
 
@@ -424,6 +430,70 @@ class VisionDiagnosticService:
 
         return None
 
+    async def _translate_fields(self, result: Dict[str, Any], language: str) -> Dict[str, Any]:
+        """Translate all diagnosis fields into target language using Gemini."""
+        if not self._gemini_available or language == "en":
+            return result
+
+        try:
+            from app.services.gemini_service import LANGUAGE_NAMES
+            lang_name = LANGUAGE_NAMES.get(language, language)
+
+            # Fields to translate
+            fields_to_translate = {
+                "plant_name": result.get("plant_name", ""),
+                "issue_detected": result.get("issue_detected", ""),
+                "severity": result.get("severity", ""),
+                "cause": result.get("cause", ""),
+                "organic_alternative": result.get("organic_alternative", ""),
+                "recommended_material": result.get("recommended_material", ""),
+                "application_method": result.get("application_method", ""),
+                "diagnosis_text": result.get("diagnosis_text", ""),
+            }
+
+            # Do not translate if they are N/A or healthy/not_a_plant
+            # For issue_detected, if it's healthy or not_a_plant, we keep it as is so the frontend can check it
+            original_issue = fields_to_translate["issue_detected"]
+            if original_issue in ("healthy", "not_a_plant", "N/A"):
+                fields_to_translate.pop("issue_detected")
+
+            prompt = (
+                f"You are an agricultural translation assistant. Translate the values of this JSON object into the language '{lang_name}' ({language}).\n"
+                f"Requirements:\n"
+                f"1. Return ONLY a valid JSON object with the exact same keys.\n"
+                f"2. Do NOT translate technical scientific names or chemical names completely (e.g. keep 'Copper Oxychloride' recognizable, but transliterate or translate it into {lang_name} script/phonetics if it helps the farmer, e.g. for Tamil: 'காப்பர் ஆக்ஸிகுளோரைடு (Copper Oxychloride)' or similar, and same for scientific names like fungi/bacteria).\n"
+                f"3. Translate standard terms (like 'mild', 'moderate', 'severe' for severity, and agricultural action verbs) fully into natural '{lang_name}'.\n"
+                f"4. Do not include any markdown backticks or explanations. Just return raw JSON.\n\n"
+                f"JSON to translate:\n"
+                f"{json.dumps(fields_to_translate, ensure_ascii=False)}"
+            )
+
+            payload = {
+                "contents": [{"parts": [{"text": prompt}]}],
+            }
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                url = get_gemini_url()
+                response = await client.post(
+                    url,
+                    headers={"Content-Type": "application/json"},
+                    json=payload,
+                )
+                if response.status_code == 200:
+                    data = response.json()
+                    content = data["candidates"][0]["content"]["parts"][0]["text"]
+                    translated_fields = self._parse_json_response(content)
+                    if translated_fields:
+                        for k, v in translated_fields.items():
+                            if v and v != "N/A":
+                                result[k] = v
+                        # Also write diagnosis_translated
+                        if "diagnosis_text" in translated_fields:
+                            result["diagnosis_translated"] = translated_fields["diagnosis_text"]
+        except Exception as e:
+            logger.warning(f"[Vision] Gemini translation failed: {e}")
+
+        return result
+
     # ═══════════════════════════════════════════════════════════════════════
     # Utilities
     # ═══════════════════════════════════════════════════════════════════════
@@ -455,36 +525,6 @@ class VisionDiagnosticService:
         logger.warning(f"[Vision] Could not parse JSON from response: {text[:200]}")
         return None
 
-    @staticmethod
-    async def _get_location_from_ip(ip: str) -> Optional[str]:
-        """Resolve IP address to a city and region using ip-api.com."""
-        if not ip or ip in ("127.0.0.1", "localhost", "::1"):
-            return None
-            
-        cached_loc = ip_geo_cache.get(ip)
-        if cached_loc:
-            return cached_loc
-
-        try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(f"http://ip-api.com/json/{ip}?fields=status,city,regionName")
-                if resp.status_code == 200:
-                    data = resp.json()
-                    if data.get("status") == "success":
-                        city = data.get("city")
-                        region = data.get("regionName")
-                        loc_str = None
-                        if city and region:
-                            loc_str = f"{city}, {region}"
-                        elif city:
-                            loc_str = city
-                            
-                        if loc_str:
-                            ip_geo_cache.set(ip, loc_str)
-                            return loc_str
-        except Exception as e:
-            logger.warning(f"[Vision] IP Geolocation failed for {ip}: {e}")
-        return None
 
     @staticmethod
     def _extract_price_from_search(results: list) -> Optional[Dict[str, str]]:

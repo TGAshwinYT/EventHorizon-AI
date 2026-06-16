@@ -4,6 +4,7 @@ import MobileMandiForecasting from './MobileMandiForecasting';
 import MobileWeatherForecast from './MobileWeatherForecast';
 import CustomSelect from '../../components/CustomSelect';
 import { useUserStore } from '../../store/userStore';
+import { DISTRICT_PLACES } from '../../utils/locationData';
 
 interface ForecastingInterfaceProps {
     labels?: any;
@@ -18,6 +19,7 @@ const MobileForecastingInterface = ({ labels }: ForecastingInterfaceProps) => {
     const [state, setState] = useState(profile?.state || 'Tamil Nadu');
     const [district, setDistrict] = useState(profile?.district || '');
     const [place, setPlace] = useState(profile?.mandal || '');
+    const [isCustomPlace, setIsCustomPlace] = useState(false);
     const [availableDistricts, setAvailableDistricts] = useState<string[]>([]);
     const [loadingDistricts, setLoadingDistricts] = useState(false);
 
@@ -109,14 +111,23 @@ const MobileForecastingInterface = ({ labels }: ForecastingInterfaceProps) => {
                             <CustomSelect
                                 label="Select State"
                                 value={state}
-                                onChange={setState}
+                                onChange={(val) => {
+                                    setState(val);
+                                    setDistrict('');
+                                    setPlace('');
+                                    setIsCustomPlace(false);
+                                }}
                                 options={states}
                                 accentColor={activeTab === 'mandi' ? 'emerald' : 'blue'}
                             />
                             <CustomSelect
                                 label="Select District"
                                 value={district}
-                                onChange={setDistrict}
+                                onChange={(val) => {
+                                    setDistrict(val);
+                                    setPlace('');
+                                    setIsCustomPlace(false);
+                                }}
                                 options={availableDistricts}
                                 disabled={loadingDistricts}
                                 accentColor={activeTab === 'mandi' ? 'emerald' : 'blue'}
@@ -128,13 +139,53 @@ const MobileForecastingInterface = ({ labels }: ForecastingInterfaceProps) => {
                                         <MapPin className="w-3 h-3 inline mr-1" />
                                         Place / Town / Mandal
                                     </label>
-                                    <input
-                                        type="text"
-                                        value={place}
-                                        onChange={(e) => setPlace(e.target.value)}
-                                        placeholder="e.g. Sathyamangalam"
-                                        className="bg-[#1A1C23] border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm placeholder-gray-500 focus:border-blue-500/50 focus:outline-none focus:ring-1 focus:ring-blue-500/30 transition-all"
-                                    />
+                                    {!isCustomPlace && district && DISTRICT_PLACES[district] ? (
+                                        <select
+                                            value={place}
+                                            onChange={(e) => {
+                                                if (e.target.value === '__custom__') {
+                                                    setIsCustomPlace(true);
+                                                    setPlace('');
+                                                } else {
+                                                    setPlace(e.target.value);
+                                                }
+                                            }}
+                                            disabled={!district}
+                                            className="bg-[#1A1C23] border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm focus:border-blue-500/50 focus:outline-none focus:ring-1 focus:ring-blue-500/30 transition-all cursor-pointer w-full"
+                                        >
+                                            <option value="" className="bg-[#1A1C23] text-gray-400">
+                                                {district ? 'Select Place' : 'Select District first'}
+                                            </option>
+                                            {(DISTRICT_PLACES[district] || []).map((p) => (
+                                                <option key={p} value={p} className="bg-[#1A1C23] text-white">{p}</option>
+                                            ))}
+                                            <option value="__custom__" className="bg-[#1A1C23] text-blue-400 font-bold">
+                                                Other (Type custom place...)
+                                            </option>
+                                        </select>
+                                    ) : (
+                                        <div className="relative w-full">
+                                            <input
+                                                type="text"
+                                                value={place}
+                                                onChange={(e) => setPlace(e.target.value)}
+                                                placeholder="e.g. Sathyamangalam"
+                                                className="w-full bg-[#1A1C23] border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm placeholder-gray-500 focus:border-blue-500/50 focus:outline-none focus:ring-1 focus:ring-blue-500/30 transition-all pr-16"
+                                            />
+                                            {isCustomPlace && district && DISTRICT_PLACES[district] && (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setIsCustomPlace(false);
+                                                        setPlace('');
+                                                    }}
+                                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-blue-400 hover:underline"
+                                                >
+                                                    List
+                                                </button>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>

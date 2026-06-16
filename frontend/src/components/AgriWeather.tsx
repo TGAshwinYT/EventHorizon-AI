@@ -3,6 +3,7 @@ import { CloudRain, Sun, Cloud, Wind, Droplets, AlertTriangle, MapPin } from 'lu
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import CustomSelect from './CustomSelect';
 import { useUserStore } from '../store/userStore';
+import { DISTRICT_PLACES } from '../utils/locationData';
 
 interface WeatherDay {
     date: string;
@@ -45,6 +46,7 @@ const AgriWeather = memo(({ labels }: AgriWeatherProps = {}) => {
     const [selectedDistrict, setSelectedDistrict] = useState(profile?.district || 'Erode');
     const [place, setPlace] = useState(profile?.mandal || '');
     const [weatherForecast, setWeatherForecast] = useState<WeatherDay[]>([]);
+    const [isCustomPlace, setIsCustomPlace] = useState(false);
 
     // UI states
     const [loading, setLoading] = useState(false);
@@ -163,6 +165,7 @@ const AgriWeather = memo(({ labels }: AgriWeatherProps = {}) => {
                             const newDistricts = indiaLocations[val] || [];
                             setSelectedDistrict(newDistricts.length > 0 ? newDistricts[0] : '');
                             setPlace('');
+                            setIsCustomPlace(false);
                         }}
                         options={states}
                         accentColor="emerald"
@@ -173,6 +176,7 @@ const AgriWeather = memo(({ labels }: AgriWeatherProps = {}) => {
                         onChange={(val) => {
                             setSelectedDistrict(val);
                             setPlace('');
+                            setIsCustomPlace(false);
                         }}
                         options={availableDistricts}
                         disabled={!selectedState || availableDistricts.length === 0}
@@ -183,13 +187,53 @@ const AgriWeather = memo(({ labels }: AgriWeatherProps = {}) => {
                         <label className="text-xs text-gray-400 font-medium">
                             {labels?.selectPlace || 'Place / Town / Mandal'}
                         </label>
-                        <input
-                            type="text"
-                            value={place}
-                            onChange={(e) => setPlace(e.target.value)}
-                            placeholder="e.g. Sathyamangalam"
-                            className="bg-[#1A1C23] border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm placeholder-gray-500 focus:border-[#00FF7F]/50 focus:outline-none focus:ring-1 focus:ring-[#00FF7F]/30 transition-all"
-                        />
+                        {!isCustomPlace && selectedDistrict && DISTRICT_PLACES[selectedDistrict] ? (
+                            <select
+                                value={place}
+                                onChange={(e) => {
+                                    if (e.target.value === '__custom__') {
+                                        setIsCustomPlace(true);
+                                        setPlace('');
+                                    } else {
+                                        setPlace(e.target.value);
+                                    }
+                                }}
+                                disabled={!selectedDistrict}
+                                className="bg-[#1A1C23] border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm focus:border-[#00FF7F]/50 focus:outline-none focus:ring-1 focus:ring-[#00FF7F]/30 transition-all cursor-pointer"
+                            >
+                                <option value="" className="bg-[#1A1C23] text-gray-400">
+                                    {selectedDistrict ? 'Select Place' : 'Select District first'}
+                                </option>
+                                {(DISTRICT_PLACES[selectedDistrict] || []).map((p) => (
+                                    <option key={p} value={p} className="bg-[#1A1C23] text-white">{p}</option>
+                                ))}
+                                <option value="__custom__" className="bg-[#1A1C23] text-[#00FF7F] font-bold">
+                                    Other (Type custom place...)
+                                </option>
+                            </select>
+                        ) : (
+                            <div className="relative">
+                                <input
+                                    type="text"
+                                    value={place}
+                                    onChange={(e) => setPlace(e.target.value)}
+                                    placeholder="e.g. Sathyamangalam"
+                                    className="w-full bg-[#1A1C23] border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm placeholder-gray-500 focus:border-[#00FF7F]/50 focus:outline-none focus:ring-1 focus:ring-[#00FF7F]/30 transition-all pr-16"
+                                />
+                                {isCustomPlace && selectedDistrict && DISTRICT_PLACES[selectedDistrict] && (
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setIsCustomPlace(false);
+                                            setPlace('');
+                                        }}
+                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-[#00FF7F] hover:underline"
+                                    >
+                                        List
+                                    </button>
+                                )}
+                            </div>
+                        )}
                     </div>
                 </div>
             </div>

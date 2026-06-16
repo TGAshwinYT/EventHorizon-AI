@@ -81,47 +81,6 @@ class AssessRequest(BaseModel):
 # Helper: Resolve location
 # ──────────────────────────────────────────────────────────────
 
-def _get_client_ip(request: Request) -> Optional[str]:
-    """Extract real client IP, handling proxies."""
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.client.host if request.client else None
-
-
-async def _resolve_location_from_ip(ip: str, client: httpx.AsyncClient) -> Optional[dict]:
-    """IP geolocation via ip-api.com (free, no key)."""
-    if not ip or ip in ("127.0.0.1", "::1", "localhost"):
-        return None
-
-    cached = _ip_cache.get(f"ip_{ip}")
-    if cached:
-        return cached
-
-    try:
-        res = await client.get(
-            f"http://ip-api.com/json/{ip}?fields=status,city,regionName,lat,lon",
-            timeout=5,
-        )
-        if res.status_code == 200:
-            data = res.json()
-            if data.get("status") == "success":
-                nearest = find_nearest_district(data["lat"], data["lon"])
-                if nearest:
-                    result = {
-                        "state": nearest["state"],
-                        "district": nearest["district"],
-                        "lat": nearest["lat"],
-                        "lon": nearest["lon"],
-                        "method": "ip",
-                    }
-                    _ip_cache.set(f"ip_{ip}", result)
-                    return result
-    except Exception as e:
-        print(f"[HarvestIQ] IP geolocation failed: {e}")
-    return None
-
-
 async def _resolve_location(
     lat: Optional[float],
     lon: Optional[float],
@@ -132,11 +91,10 @@ async def _resolve_location(
     client: httpx.AsyncClient,
 ) -> dict:
     """
-    4-layer location resolution:
+    3-layer location resolution (IP detection removed):
       Layer 0: Manual state/district/place
       Layer 1: GPS coords
-      Layer 2: IP geolocation
-      Layer 3: error
+      Layer 2: error
     """
     # Layer 0: Manual
     if state and district:
@@ -158,14 +116,7 @@ async def _resolve_location(
             return {**nearest, "method": "gps"}
         return {"state": "Unknown", "district": "Unknown", "lat": lat, "lon": lon, "method": "gps"}
 
-    # Layer 2: IP
-    ip = _get_client_ip(request)
-    if ip:
-        result = await _resolve_location_from_ip(ip, client)
-        if result:
-            return result
-
-    # Layer 3: Manual fallback needed
+    # Layer 2: Manual fallback needed
     raise HTTPException(
         status_code=400,
         detail="Could not auto-detect location. Please provide lat/lon or use manual selection.",
@@ -371,19 +322,10 @@ async def get_locations():
 
 @router.get("/detect-location")
 async def detect_location(request: Request):
-    """Auto-detect location from IP."""
-    ip = _get_client_ip(request)
-    if not ip:
-        raise HTTPException(status_code=400, detail="Could not determine IP address")
-
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        result = await _resolve_location_from_ip(ip, client)
-        if result:
-            return result
-
+    """Auto-detect location from IP (Disabled)."""
     raise HTTPException(
-        status_code=404,
-        detail="Could not detect location from IP. Use GPS or manual selection."
+        status_code=400,
+        detail="IP geolocation is disabled. Please provide GPS coordinates or select location manually."
     )
 
 

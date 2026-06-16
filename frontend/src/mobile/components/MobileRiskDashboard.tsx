@@ -4,6 +4,7 @@ import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianG
 import CustomSelect from '../../components/CustomSelect';
 import NdviCard from '../../components/NdviCard';
 import { useUserStore } from '../../store/userStore';
+import { DISTRICT_PLACES } from '../../utils/locationData';
 
 /* ── Types ─────────────────────────────────────────── */
 interface RiskDetail { score: number; label: string; advisory: string; }
@@ -57,6 +58,7 @@ const MobileRiskDashboard = memo(function MobileRiskDashboard({ onBack, labels }
     const [selectedDistrict, setSelectedDistrict] = useState('');
     const [place, setPlace] = useState('');
     const [selectedCrop, setSelectedCrop] = useState('Rice');
+    const [isCustomPlace, setIsCustomPlace] = useState(false);
     const [data, setData] = useState<RiskData | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -72,6 +74,7 @@ const MobileRiskDashboard = memo(function MobileRiskDashboard({ onBack, labels }
 
     const states = useMemo(() => Object.keys(locationTree).sort(), [locationTree]);
     const districts = useMemo(() => selectedState ? (locationTree[selectedState] || []) : [], [selectedState, locationTree]);
+    const availablePlaces = useMemo(() => selectedDistrict ? (DISTRICT_PLACES[selectedDistrict] || []) : [], [selectedDistrict]);
 
     useEffect(() => {
         fetch('/api/harvestiq/locations').then(r => r.ok ? r.json() : {}).then(t => setLocationTree(t)).catch(() => {});
@@ -233,6 +236,7 @@ const MobileRiskDashboard = memo(function MobileRiskDashboard({ onBack, labels }
         setSelectedState(v);
         setSelectedDistrict((locationTree[v] || [])[0] || '');
         setPlace('');
+        setIsCustomPlace(false);
         setLocMethod('manual');
         setGpsCoords(null);
     }, [locationTree]);
@@ -240,6 +244,7 @@ const MobileRiskDashboard = memo(function MobileRiskDashboard({ onBack, labels }
     const handleDistrictChange = useCallback((v: string) => {
         setSelectedDistrict(v);
         setPlace('');
+        setIsCustomPlace(false);
         setLocMethod('manual');
         setGpsCoords(null);
     }, []);
@@ -300,13 +305,53 @@ const MobileRiskDashboard = memo(function MobileRiskDashboard({ onBack, labels }
                                 <label className="text-xs text-gray-400 font-medium">
                                     {labels?.selectPlace || 'Place / Town / Mandal'}
                                 </label>
-                                <input
-                                    type="text"
-                                    value={place}
-                                    onChange={(e) => setPlace(e.target.value)}
-                                    placeholder="e.g. Sathyamangalam"
-                                    className="bg-[#1A1C23] border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm placeholder-gray-500 focus:border-amber-500/50 focus:outline-none focus:ring-1 focus:ring-amber-500/30 transition-all"
-                                />
+                                {!isCustomPlace && availablePlaces.length > 0 ? (
+                                    <select
+                                        value={place}
+                                        onChange={(e) => {
+                                            if (e.target.value === '__custom__') {
+                                                setIsCustomPlace(true);
+                                                setPlace('');
+                                            } else {
+                                                setPlace(e.target.value);
+                                            }
+                                        }}
+                                        disabled={!selectedDistrict}
+                                        className="bg-[#1A1C23] border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm focus:border-amber-500/50 focus:outline-none focus:ring-1 focus:ring-amber-500/30 transition-all cursor-pointer w-full"
+                                    >
+                                        <option value="" className="bg-[#1A1C23] text-gray-400">
+                                            {selectedDistrict ? 'Select Place' : 'Select District first'}
+                                        </option>
+                                        {availablePlaces.map((p) => (
+                                            <option key={p} value={p} className="bg-[#1A1C23] text-white">{p}</option>
+                                        ))}
+                                        <option value="__custom__" className="bg-[#1A1C23] text-amber-400 font-bold">
+                                            Other (Type custom place...)
+                                        </option>
+                                    </select>
+                                ) : (
+                                    <div className="relative w-full">
+                                        <input
+                                            type="text"
+                                            value={place}
+                                            onChange={(e) => setPlace(e.target.value)}
+                                            placeholder="e.g. Sathyamangalam"
+                                            className="w-full bg-[#1A1C23] border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm placeholder-gray-500 focus:border-amber-500/50 focus:outline-none focus:ring-1 focus:ring-amber-500/30 transition-all pr-16"
+                                        />
+                                        {isCustomPlace && availablePlaces.length > 0 && (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setIsCustomPlace(false);
+                                                    setPlace('');
+                                                }}
+                                                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-amber-400 hover:underline"
+                                            >
+                                                List
+                                            </button>
+                                        )}
+                                    </div>
+                                )}
                             </div>
                         </div>
                     )}

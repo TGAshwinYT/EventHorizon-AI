@@ -33,6 +33,7 @@ async def diagnose_crop(
 ):
     """Diagnose crop disease from compressed image."""
     user_id = None
+    location = None
     if authorization and authorization.startswith("Bearer "):
         try:
             token = authorization.split(" ")[1]
@@ -44,6 +45,16 @@ async def diagnose_crop(
                     user = result.scalars().first()
                     if user:
                         user_id = user.id
+                        # Build location string for search localization
+                        loc_parts = []
+                        if user.mandal:
+                            loc_parts.append(user.mandal)
+                        if user.district:
+                            loc_parts.append(user.district)
+                        if user.state:
+                            loc_parts.append(user.state)
+                        if loc_parts:
+                            location = ", ".join(loc_parts)
         except Exception as e:
             logger.warning(f"[Scanner] Auth error: {e}")
 
@@ -52,14 +63,12 @@ async def diagnose_crop(
 
     image_size_kb = len(data.image_base64) * 3 / 4 / 1024
     try:
-        client_ip = request.client.host if request.client else None
-        
         result = await vision_diagnostic_service.diagnose(
             image_base64=data.image_base64,
             language=data.language,
             user_query=data.query,
             speak_result=True,
-            client_ip=client_ip,
+            location=location,
         )
         logger.info(f"[Scanner] Done: {result.get('issue_detected')}")
         return result
