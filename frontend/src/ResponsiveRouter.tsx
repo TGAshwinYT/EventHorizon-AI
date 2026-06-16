@@ -2,7 +2,19 @@ import { useState, useEffect, lazy, Suspense } from 'react';
 import App from './App';
 import { Loader2 } from 'lucide-react';
 
-const MobileApp = lazy(() => import('./mobile/MobileApp'));
+const lazyWithRetry = (componentImport: () => Promise<any>) => 
+    lazy(() => 
+        componentImport().catch((error) => {
+            const isChunkLoadFailed = error.name === 'ChunkLoadError' || 
+                /Failed to fetch dynamically imported module|Importing a module script failed/.test(error.message);
+            if (isChunkLoadFailed) {
+                window.location.reload();
+            }
+            throw error;
+        })
+    );
+
+const MobileApp = lazyWithRetry(() => import('./mobile/MobileApp'));
 
 export default function ResponsiveRouter() {
     const [isMobile, setIsMobile] = useState<boolean>(window.innerWidth < 768);

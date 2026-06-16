@@ -3,14 +3,27 @@ import Sidebar from './components/Sidebar';
 import Auth from './components/Auth';
 import { AlertCircle, Loader2 } from 'lucide-react';
 
+// Helper to handle chunk load / dynamic import failures by reloading the page
+const lazyWithRetry = (componentImport: () => Promise<any>) => 
+    lazy(() => 
+        componentImport().catch((error) => {
+            const isChunkLoadFailed = error.name === 'ChunkLoadError' || 
+                /Failed to fetch dynamically imported module|Importing a module script failed/.test(error.message);
+            if (isChunkLoadFailed) {
+                window.location.reload();
+            }
+            throw error;
+        })
+    );
+
 // Lazy-loaded tab components — only fetched when the user navigates to them
-const MarketDashboard = lazy(() => import('./components/MarketDashboard'));
-const Settings = lazy(() => import('./components/Settings'));
-const VisualScanner = lazy(() => import('./components/VisualScanner'));
-const RiskDashboard = lazy(() => import('./components/RiskDashboard'));
-const AgriDashboard = lazy(() => import('./components/AgriDashboard'));
-const OnboardingFlow = lazy(() => import('./components/OnboardingFlow'));
-const AssistantDrawer = lazy(() => import('./components/AssistantDrawer'));
+const MarketDashboard = lazyWithRetry(() => import('./components/MarketDashboard'));
+const Settings = lazyWithRetry(() => import('./components/Settings'));
+const VisualScanner = lazyWithRetry(() => import('./components/VisualScanner'));
+const RiskDashboard = lazyWithRetry(() => import('./components/RiskDashboard'));
+const AgriDashboard = lazyWithRetry(() => import('./components/AgriDashboard'));
+const OnboardingFlow = lazyWithRetry(() => import('./components/OnboardingFlow'));
+const AssistantDrawer = lazyWithRetry(() => import('./components/AssistantDrawer'));
 
 // Small, always-visible components — kept as static imports
 import { useUserStore } from './store/userStore';
